@@ -78,6 +78,11 @@ jobs:
           Copy-Item "frontend\build\windows\x64\runner\Release\*" $bundle -Recurse
           Copy-Item "backend\xjtu-housing-genius.exe" $bundle
           Compress-Archive -Path "$bundle\*" -DestinationPath "XJTU-Housing-Genius-windows-x64.zip"
+      - name: Download Chinese ISL
+        shell: pwsh
+        run: |
+          $d = "${env:ProgramFiles(x86)}\Inno Setup 6\Languages"
+          Invoke-WebRequest "https://cdn.jsdelivr.net/gh/kira-96/Inno-Setup-Chinese-Simplified-Translation@main/ChineseSimplified.isl" -OutFile "$d\ChineseSimplified.isl"
       - name: Build installer
         shell: bash
         run: iscc scripts/setupconfig.iss
