@@ -49,7 +49,20 @@ class _BedContentState extends State<BedContent> {
     try {
       final resp = await widget.api.getRoomBeds(widget.divideId, widget.roomCode);
       if (resp['code'] == 0 && resp['bedsInfo'] != null) {
-        _beds = List.from(resp['bedsInfo']);
+        final bedsInfo = List.from(resp['bedsInfo']);
+        final allBeds = <Map<String, dynamic>>[];
+        for (final room in bedsInfo) {
+          final roomName = (room['name'] ?? '').toString();
+          for (final bed in (room['bedList'] ?? [])) {
+            allBeds.add({
+              'id': bed['id']?.toString() ?? '',
+              'name': '${bed['name'] ?? '?'} ($roomName)',
+              'sn': bed['sn'],
+              'status': bed['sn'] != null ? '1' : '0',
+            });
+          }
+        }
+        _beds = allBeds;
       }
     } catch (_) {}
     if (mounted) setState(() => _loading = false);
@@ -61,8 +74,8 @@ class _BedContentState extends State<BedContent> {
 
   void _addToCollection(dynamic bed) {
     final bedMap = bed as Map<String, dynamic>;
-    final bedCode = (bedMap['bedCode'] ?? bedMap['code'] ?? '').toString();
-    final bedName = (bedMap['bedName'] ?? bedMap['name'] ?? bedCode).toString();
+    final bedCode = (bedMap['id'] ?? bedMap['bedCode'] ?? '').toString();
+    final bedName = (bedMap['name'] ?? bedMap['bedName'] ?? bedCode).toString();
     final newCol = List<Map<String, dynamic>>.from(widget.collection);
     newCol.add({
       'bedCode': bedCode,

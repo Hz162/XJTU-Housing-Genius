@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math"
 	stdlog "log"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -77,8 +76,8 @@ type Engine struct {
 func NewEngine() *Engine {
 	return &Engine{
 		state:         StateIdle,
-		RetryInterval: 500 * time.Millisecond,
-		MaxRetries:    3,
+		RetryInterval: 50 * time.Millisecond,
+		MaxRetries:    999999,
 	}
 }
 
@@ -176,7 +175,7 @@ func (e *Engine) run(ctx context.Context, totalConcurrency int) {
 			wg.Add(1)
 			go func(bed CollectedBed) {
 				defer wg.Done()
-				for round := 0; round < e.MaxRetries; round++ {
+				for round := 0; ; round++ {
 					select {
 					case <-ctx.Done():
 						return
@@ -223,41 +222,32 @@ func (e *Engine) run(ctx context.Context, totalConcurrency int) {
 						continue
 					}
 
-					switch j.Status {
-					case 0:
-						// status=0: 需要看 promptMsg 判断
-						msg := j.PromptMsg
-						if strings.Contains(msg, "成功") || strings.Contains(msg, "选床") && !strings.Contains(msg, "还未") && !strings.Contains(msg, "未开始") && !strings.Contains(msg, "结束") {
-							e.recordOK(bed.BedCode)
-							atomic.AddInt32(&successCount, 1)
-							e.log(fmt.Sprintf("✅ %s: 抢到! %s", bed.BedName, msg))
-							e.mu.Lock()
-							e.status.Success = true
-							e.status.SuccessBed = bed.BedCode
-							e.mu.Unlock()
-							e.cancel()
-							return
-						}
-						e.recordFail(bed.BedCode)
-						e.log(fmt.Sprintf("⚠️ %s: status=0 但未成功: %s", bed.BedName, msg))
+					// 原网页: code=0 && status=0 即抢床成功
+					if j.Status == 0 {
+						e.recordOK(bed.BedCode)
+						atomic.AddInt32(&successCount, 1)
+						e.log(fmt.Sprintf("✅ %s: 抢到! %s", bed.BedName, j.PromptMsg))
+						e.mu.Lock()
+						e.status.Success = true
+						e.status.SuccessBed = bed.BedName
+						e.mu.Unlock()
+						e.cancel()
+						return
+					}
 
+					e.recordFail(bed.BedCode)
+					switch j.Status {
 					case 1:
-						e.log(fmt.Sprintf("🔄 %s: session过期, relogin...", bed.BedName))
+						e.log(fmt.Sprintf("🔄 %s: session过期", bed.BedName))
 						auth.ReloginIfNeeded(e.client)
 						e.client.SetHeader("Token", session.Get().Token)
-
 					case 5:
-						e.log(fmt.Sprintf("⏰ %s: 选床还未开始: %s", bed.BedName, j.PromptMsg))
-						e.recordFail(bed.BedCode)
-
+						e.log(fmt.Sprintf("⏰ %s: 选床未开始: %s", bed.BedName, j.PromptMsg))
 					default:
-						e.recordFail(bed.BedCode)
-						e.log(fmt.Sprintf("❓ %s: 未知status=%d msg=%s prompt=%s", bed.BedName, j.Status, j.Msg, j.PromptMsg))
+						e.log(fmt.Sprintf("❓ %s: status=%d %s", bed.BedName, j.Status, j.PromptMsg))
 					}
 
-					if round < e.MaxRetries-1 {
-						time.Sleep(e.RetryInterval)
-					}
+					time.Sleep(e.RetryInterval)
 				}
 			}(t.bed)
 		}
