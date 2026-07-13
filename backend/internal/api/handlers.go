@@ -111,6 +111,7 @@ func (s *Server) HandleLogin(w http.ResponseWriter, r *http.Request) {
 
 	session.SaveCookiesFromHTTP(client.GetClient())
 	s.client = client
+	bed.LoadCollection(session.Get().StudentCode)
 
 	writeJSON(w, 200, map[string]any{
 		"success":     true,
@@ -427,7 +428,14 @@ func (s *Server) HandleBedGrabStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) HandleBedTestGrab(w http.ResponseWriter, r *http.Request) {
-	body := bed.BuildDistributeBedBody("3125303241", "0536006502020000000101", "57b92431-0b0a-41a5-bbd8-cd63807c748f", "0536006502020000000101")
+	col := bed.GetCollection()
+	bedCodes := ""
+	bedCode := "0536006502020000000101"
+	if len(col.Beds) > 0 {
+		bedCode = col.Beds[0].BedCode
+		bedCodes = col.Beds[0].BedCodes
+	}
+	body := bed.BuildDistributeBedBody("3125303241", bedCode, "57b92431-0b0a-41a5-bbd8-cd63807c748f", bedCodes)
 	tok := session.Get().Token
 	resp, err := s.client.R().
 		SetHeader("Content-Type", "application/json; charset=UTF-8").

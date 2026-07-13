@@ -23,8 +23,9 @@ type Collection struct {
 }
 
 var (
-	collection Collection
-	colMu      sync.RWMutex
+	collection      Collection
+	colMu           sync.RWMutex
+	lastStudentCode string
 )
 
 func configDir() string {
@@ -42,6 +43,7 @@ func collectionPath(studentCode string) string {
 func LoadCollection(studentCode string) error {
 	colMu.Lock()
 	defer colMu.Unlock()
+	lastStudentCode = studentCode
 	collection = Collection{Beds: []CollectedBed{}, TotalConcurrency: 10}
 	data, err := os.ReadFile(collectionPath(studentCode))
 	if err != nil {
@@ -55,13 +57,21 @@ func LoadCollection(studentCode string) error {
 
 func GetCollection() Collection {
 	colMu.RLock()
-	defer colMu.RUnlock()
-	return collection
+	c := collection
+	colMu.RUnlock()
+	if len(c.Beds) == 0 && lastStudentCode != "" {
+		LoadCollection(lastStudentCode)
+		colMu.RLock()
+		c = collection
+		colMu.RUnlock()
+	}
+	return c
 }
 
 func SaveCollection(c Collection, studentCode string) error {
 	colMu.Lock()
 	collection = c
+	lastStudentCode = studentCode
 	colMu.Unlock()
 	data, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
