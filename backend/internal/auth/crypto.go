@@ -3,7 +3,6 @@ package auth
 import (
 	"crypto/rand"
 	"crypto/rsa"
-	"crypto/sha1"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
@@ -37,4 +36,3 @@ func EncryptPassword(plaintext string) (string, error) {
 	return "__RSA__" + base64.StdEncoding.EncodeToString(ct), nil
 }
 
-var _ = sha1.New

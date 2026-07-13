@@ -34,12 +34,6 @@ func NewRouter() *chi.Mux {
 			r.Post("/verify", s.HandleMFAVerify)
 		})
 
-		// 代理：转发到 housing API（带上完整 session cookies + token）
-		r.Get("/proxy/appdm/*", s.HandleProxyAppdm)
-		r.Get("/proxy/appsys/*", s.HandleProxyAppsys)
-		r.Post("/proxy/appdm/*", s.HandleProxyAppdm)
-		r.Post("/proxy/appsys/*", s.HandleProxyAppsys)
-
 		r.Route("/bed", func(r chi.Router) {
 			r.Get("/divideId", s.HandleBedDivideId)
 			r.Get("/tree", s.HandleBedTree)
@@ -47,11 +41,13 @@ func NewRouter() *chi.Mux {
 			r.Get("/check", s.HandleBedCheck)
 			r.Get("/collection", s.HandleBedCollectionGet)
 			r.Post("/collection", s.HandleBedCollectionSave)
+			r.Get("/collect-list", s.HandleBedCollectSyncList)
+			r.Post("/collect-save", s.HandleBedCollectSyncSave)
+			r.Post("/collect-delete", s.HandleBedCollectSyncDelete)
 			r.Get("/grab/status", s.HandleBedGrabStatus)
 			r.Post("/grab/start", s.HandleBedGrabStart)
 			r.Post("/grab/stop", s.HandleBedGrabStop)
 			r.Get("/room-assign", s.HandleBedRoomAssign)
-			r.Get("/test-grab", s.HandleBedTestGrab)
 		})
 	})
 

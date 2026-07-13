@@ -2,7 +2,6 @@ package api
 
 import (
 	"encoding/json"
-	"io"
 	"log"
 	"net/http"
 
@@ -11,7 +10,6 @@ import (
 	"xjtu-housing-genius/internal/config"
 	"xjtu-housing-genius/internal/session"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/go-resty/resty/v2"
 )
 
@@ -268,57 +266,6 @@ func writeJSON(w http.ResponseWriter, status int, data interface{}) {
 	json.NewEncoder(w).Encode(data)
 }
 
-// ── Proxy: 转发到 housing API（带完整 session）──
-
-func (s *Server) HandleProxyAppdm(w http.ResponseWriter, r *http.Request) {
-	path := chi.URLParam(r, "*")
-	query := r.URL.RawQuery
-	url := "http://housing2021.xjtu.edu.cn/appdm/" + path
-	if query != "" {
-		url += "?" + query
-	}
-	s.proxyRequest(w, r, url)
-}
-
-func (s *Server) HandleProxyAppsys(w http.ResponseWriter, r *http.Request) {
-	path := chi.URLParam(r, "*")
-	query := r.URL.RawQuery
-	url := "http://housing2021.xjtu.edu.cn/appsys/" + path
-	if query != "" {
-		url += "?" + query
-	}
-	s.proxyRequest(w, r, url)
-}
-
-func (s *Server) proxyRequest(w http.ResponseWriter, r *http.Request, targetURL string) {
-	req, err := http.NewRequest(r.Method, targetURL, r.Body)
-	if err != nil {
-		writeJSON(w, 500, map[string]string{"error": err.Error()})
-		return
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	if token := session.Get().Token; token != "" {
-		req.Header.Set("Token", token)
-		// 关键：浏览器同时发 token cookie，部分 appdm 接口依赖 cookie
-		req.AddCookie(&http.Cookie{Name: "token", Value: token})
-	}
-
-	resp, err := s.client.GetClient().Do(req)
-	if err != nil {
-		writeJSON(w, 500, map[string]string{"error": err.Error()})
-		return
-	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(resp.Body)
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(resp.StatusCode)
-	w.Write(body)
-}
-
-func init() {
-	log.SetFlags(log.Ltime)
-}
 
 // ── Bed ──
 
@@ -327,7 +274,6 @@ func (s *Server) HandleBedDivideId(w http.ResponseWriter, r *http.Request) {
 	if personsn == "" {
 		personsn = session.Get().StudentCode
 	}
-	// 真实 API: GET /appdm/freshman/resident/getDivideCountDown?personsn=xxx&status=PC
 	body, err := bed.ProxyGet(s.client, "/appdm/freshman/resident/getDivideCountDown",
 		map[string]string{"personsn": personsn, "status": "PC"}, session.Get().Token)
 	if err != nil {
@@ -335,7 +281,6 @@ func (s *Server) HandleBedDivideId(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	log.Printf("[bed] divideId response: %s", string(body)[:min(200, len(body))])
 	w.Write(body)
 }
 
@@ -347,8 +292,17 @@ func (s *Server) HandleBedTree(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, map[string]string{"error": err.Error()})
 		return
 	}
+	// 真实API返回 {places: [...]}，提取places数组
+	var wrapper struct {
+		Code   int  `json:"code"`
+		Places []any `json:"places"`
+	}
 	w.Header().Set("Content-Type", "application/json")
-	w.Write(body)
+	if json.Unmarshal(body, &wrapper) == nil && wrapper.Places != nil {
+		json.NewEncoder(w).Encode(wrapper.Places)
+	} else {
+		w.Write(body)
+	}
 }
 
 func (s *Server) HandleBedRoomBeds(w http.ResponseWriter, r *http.Request) {
@@ -376,20 +330,13 @@ func (s *Server) HandleBedCheck(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) HandleBedGrabStart(w http.ResponseWriter, r *http.Request) {
-	studentCode := session.Get().StudentCode
-	if studentCode == "" {
-		studentCode = "mock-user"
-	}
 	personsn := r.URL.Query().Get("personsn")
 	if personsn == "" {
-		personsn = studentCode
+		personsn = session.Get().StudentCode
 	}
 	divideId := r.URL.Query().Get("divideId")
 
 	s.engine.SetClient(s.client, personsn, divideId)
-	if bed.MockMode {
-		bed.ResetMockGrab()
-	}
 
 	var req struct {
 		TotalConcurrency int `json:"totalConcurrency"`
@@ -435,6 +382,84 @@ func (s *Server) HandleBedCollectionSave(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, 200, map[string]string{"status": "ok"})
 }
 
+// ── 服务器端收藏同步 (原网页 saveBed / getBedCollectList / deleteBedCollect) ──
+
+func (s *Server) HandleBedCollectSyncSave(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Personsn     string `json:"personsn"`
+		BedPlaceCode string `json:"bedPlaceCode"`
+		DivideId     string `json:"divideId"`
+		BeddingInfo  string `json:"beddingInfo"`
+		BedCodes     string `json:"bedCodes"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+	if req.Personsn == "" {
+		req.Personsn = session.Get().StudentCode
+	}
+	if req.DivideId == "" {
+		req.DivideId = r.URL.Query().Get("divideId")
+	}
+	log.Printf("[collect] saveBed: personsn=%s divideId=%s bedPlaceCode=%s bedCodes=%s",
+		req.Personsn, req.DivideId, req.BedPlaceCode, req.BedCodes)
+
+	body, err := bed.ProxyPostJSON(s.client, "/appdm/freshman/collect/saveBed",
+		map[string]interface{}{
+			"personsn":     req.Personsn,
+			"bedPlaceCode": req.BedPlaceCode,
+			"divideId":     req.DivideId,
+			"beddingInfo":  req.BeddingInfo,
+			"bedCodes":     req.BedCodes,
+		}, session.Get().Token)
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"error": err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(body)
+}
+
+func (s *Server) HandleBedCollectSyncList(w http.ResponseWriter, r *http.Request) {
+	personsn := r.URL.Query().Get("personsn")
+	if personsn == "" {
+		personsn = session.Get().StudentCode
+	}
+	divideId := r.URL.Query().Get("divideId")
+	modelId := r.URL.Query().Get("modelId")
+	if modelId == "" {
+		modelId = "dm"
+	}
+	log.Printf("[collect] getBedCollectList: personsn=%s divideId=%s", personsn, divideId)
+
+	body, err := bed.ProxyPost(s.client, "/appdm/freshman/collect/getBedCollectList",
+		map[string]string{"personsn": personsn, "divideId": divideId, "modelId": modelId},
+		"query", session.Get().Token)
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"error": err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(body)
+}
+
+func (s *Server) HandleBedCollectSyncDelete(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Id      string `json:"id"`
+		BedCode string `json:"bedCode"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+	log.Printf("[collect] deleteBedCollect: id=%s bedCode=%s", req.Id, req.BedCode)
+
+	body, err := bed.ProxyPost(s.client, "/appdm/freshman/collect/deleteBedCollect",
+		map[string]string{"id": req.Id, "bedCode": req.BedCode},
+		"form", session.Get().Token)
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"error": err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(body)
+}
+
 func (s *Server) HandleBedGrabStop(w http.ResponseWriter, r *http.Request) {
 	s.engine.Stop()
 	writeJSON(w, 200, map[string]string{"status": "stopped"})
@@ -442,35 +467,6 @@ func (s *Server) HandleBedGrabStop(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) HandleBedGrabStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, s.engine.Status())
-}
-
-func (s *Server) HandleBedTestGrab(w http.ResponseWriter, r *http.Request) {
-	col := bed.GetCollection()
-	bedCodes := ""
-	bedCode := "0536006502020000000101"
-	if len(col.Beds) > 0 {
-		bedCode = col.Beds[0].BedCode
-		bedCodes = col.Beds[0].BedCodes
-	}
-	body := bed.BuildDistributeBedBody("3125303241", bedCode, "57b92431-0b0a-41a5-bbd8-cd63807c748f", bedCodes)
-	tok := session.Get().Token
-	resp, err := s.client.R().
-		SetHeader("Content-Type", "application/json; charset=UTF-8").
-		SetHeader("Token", tok).
-		SetHeader("Origin", "http://housing2021.xjtu.edu.cn").
-		SetHeader("Referer", "http://housing2021.xjtu.edu.cn/dmWeb/").
-		SetCookie(&http.Cookie{Name: "token", Value: tok}).
-		SetBody(body).
-		Post("http://housing2021.xjtu.edu.cn/appdm/freshman/bunk/distributeBed")
-	if err != nil {
-		writeJSON(w, 500, map[string]any{"error": err.Error(), "body": body})
-		return
-	}
-	writeJSON(w, 200, map[string]any{
-		"sent_body":    body,
-		"status_code":  resp.StatusCode(),
-		"response":     string(resp.Body()),
-	})
 }
 
 func (s *Server) HandleBedRoomAssign(w http.ResponseWriter, r *http.Request) {

@@ -11,6 +11,8 @@ frontend/windows/flutter/ephemeral/
 backend/xjtu-housing-genius.exe
 backend/xjtu-housing-genius-real.exe
 backend/xjtu-housing-genius-mock.exe
+backend/xjtu-housing-genius-test.exe
+backend/mock-server.exe
 backend/cmd/mock/mock-backend.exe
 backend/server.exe
 

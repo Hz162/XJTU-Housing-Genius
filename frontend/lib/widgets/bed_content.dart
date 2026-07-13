@@ -27,15 +27,13 @@ class BedContent extends StatefulWidget {
 }
 
 class _BedContentState extends State<BedContent> {
-  List<dynamic> _beds = [];
+  List<dynamic> _rooms = [];
   bool _loading = false;
 
   @override
   void didUpdateWidget(BedContent oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.roomCode != widget.roomCode) {
-      _loadBeds();
-    }
+    if (oldWidget.roomCode != widget.roomCode) _loadBeds();
   }
 
   @override
@@ -44,188 +42,148 @@ class _BedContentState extends State<BedContent> {
     _loadBeds();
   }
 
-  Map<String, String> _badges = {};
-
   Future<void> _loadBeds() async {
     setState(() => _loading = true);
     try {
       final resp = await widget.api.getRoomBeds(widget.divideId, widget.roomCode);
       if (resp['code'] == 0 && resp['bedsInfo'] != null) {
-        final bedsInfo = List.from(resp['bedsInfo']);
-        final allBeds = <Map<String, dynamic>>[];
-        for (final room in bedsInfo) {
-          final roomName = (room['name'] ?? '').toString();
-          for (final bed in (room['bedList'] ?? [])) {
-            allBeds.add({
-              'id': bed['id']?.toString() ?? '',
-              'name': '${bed['name'] ?? '?'} ($roomName)',
-              'sn': bed['sn'],
-            });
-          }
-        }
-        _beds = allBeds;
-        // 获取已分配/收藏计数
-        _loadBadges();
+        _rooms = List.from(resp['bedsInfo']);
       }
     } catch (_) {}
     if (mounted) setState(() => _loading = false);
   }
 
-  Future<void> _loadBadges() async {
+  bool _isCollected(dynamic room) {
+    final code = (room['code'] ?? room['id'] ?? '').toString();
+    return widget.collection.any((c) => c['roomCode'] == code);
+  }
+
+  void _addRoom(dynamic roomData) async {
+    final room = roomData as Map<String, dynamic>;
+    final roomCode = (room['code'] ?? room['id'] ?? '').toString();
+    final beds = (room['bedList'] ?? []) as List;
+    if (beds.isEmpty) return;
+    Map<String, dynamic>? pick;
+    for (final b in beds) {
+      if (b['sn'] == null) { pick = Map<String, dynamic>.from(b); break; }
+    }
+    pick ??= Map<String, dynamic>.from(beds.first);
+    final bedCodeVal = pick['code']?.toString() ?? pick['id']?.toString() ?? '';
+    final bedName = '${room['name'] ?? roomCode} ${pick['name'] ?? ''}';
+    final allCodes = beds.map((b) => b['id']?.toString() ?? '').where((id) => id.isNotEmpty).join(',');
+
+    // 同步收藏到服务器 (原网页 saveBed API)
     try {
-      final resp = await widget.api.getRoomAssign(widget.divideId, widget.roomCode);
-      if (resp['code'] == 0 && resp['assignBeds'] != null) {
-        final badges = <String, String>{};
-        for (final b in resp['assignBeds']) {
-          if (b['badge'] != null) {
-            badges[b['code']?.toString() ?? ''] = b['badge'].toString();
-          }
-        }
-        _badges = badges;
-        if (mounted) setState(() {});
-      }
+      await widget.api.collectSyncSave(
+        personsn: widget.personsn,
+        bedPlaceCode: bedCodeVal,
+        divideId: widget.divideId,
+        bedCodes: allCodes,
+      );
     } catch (_) {}
-  }
 
-  bool _isCollected(String bedCode) {
-    return widget.collection.any((c) => c['bedCode'] == bedCode);
-  }
-
-  void _addToCollection(dynamic bed) {
-    final bedMap = bed as Map<String, dynamic>;
-    final bedCode = (bedMap['id'] ?? bedMap['bedCode'] ?? '').toString();
-    final bedName = (bedMap['name'] ?? bedMap['bedName'] ?? bedCode).toString();
-    final allBedCodes = _beds.map((b) => (b['id'] ?? '').toString()).where((id) => id.isNotEmpty).join(',');
     final newCol = List<Map<String, dynamic>>.from(widget.collection);
     newCol.add({
-      'bedCode': bedCode,
-      'bedName': bedName,
-      'roomCode': widget.roomCode,
-      'buildingCode': '',
-      'priority': newCol.length + 1,
-      'bedCodes': allBedCodes,
+      'bedCode': bedCodeVal, 'bedName': bedName,
+      'roomCode': roomCode, 'buildingCode': '',
+      'priority': newCol.length + 1, 'bedCodes': allCodes,
     });
     widget.onCollectionChanged(newCol, 10);
-    setState(() {});
+    if (mounted) setState(() {});
   }
 
   @override
   Widget build(BuildContext context) {
     if (_loading) return const Center(child: CircularProgressIndicator());
-
     return Padding(
       padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(Icons.meeting_room_rounded, size: 18, color: primaryColor),
-              const SizedBox(width: 8),
-              Text('房间 ${widget.roomCode}',
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: textPrimary)),
-              const Spacer(),
-              IconButton(
-                icon: const Icon(Icons.refresh_rounded, size: 20),
-                onPressed: _loadBeds,
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Expanded(
-            child: _beds.isEmpty
-                ? const Center(child: Text('该房间暂无可选床位', style: TextStyle(fontSize: 14, color: textMuted)))
-                : ListView.builder(
-                    itemCount: _beds.length,
-                    itemBuilder: (_, i) {
-                      final bed = _beds[i] as Map<String, dynamic>;
-                      final bedId = (bed['id'] ?? bed['bedCode'] ?? '').toString();
-                      final name = (bed['name'] ?? bed['bedName'] ?? bedId).toString();
-                      final sn = bed['sn'];
-                      final collected = _isCollected(bedId);
-                      final isOccupied = sn != null;
-                      final badge = _badges[bedId];
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          const Icon(Icons.meeting_room_rounded, size: 18, color: primaryColor),
+          const SizedBox(width: 8),
+          Expanded(child: Text('房间 ${widget.roomCode}',
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: textPrimary))),
+          IconButton(icon: const Icon(Icons.refresh_rounded, size: 20), onPressed: _loadBeds),
+        ]),
+        const SizedBox(height: 12),
+        Expanded(
+          child: _rooms.isEmpty
+              ? Center(
+                  child: GestureDetector(
+                    onTap: _loadBeds,
+                    child: const Text('加载失败，点击重试', style: TextStyle(fontSize: 14, color: textMuted)),
+                  ))
+              : ListView.builder(
+                  itemCount: _rooms.length,
+                  itemBuilder: (_, i) {
+                    final room = _rooms[i] as Map<String, dynamic>;
+                    final code = (room['code'] ?? room['id'] ?? '').toString();
+                    final name = (room['name'] ?? code).toString();
+                    final beds = (room['bedList'] ?? []) as List;
+                    final freeBeds = beds.where((b) => b['sn'] == null).length;
+                    final hasBadge = room['badge'] == true;
+                    final collected = _isCollected(room);
+                    final allFull = freeBeds == 0;
 
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        decoration: BoxDecoration(
-                          color: surfaceColor,
-                          borderRadius: BorderRadius.circular(radiusLg),
-                          border: Border.all(color: borderColor),
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 3, height: 36,
-                                decoration: BoxDecoration(
-                                  color: isOccupied ? textMuted : (collected ? successColor : primaryColor),
-                                  borderRadius: BorderRadius.circular(2),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(name, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: textPrimary)),
-                                    Text(bedId, style: const TextStyle(fontSize: 11, fontFamily: 'monospace', color: textSecondary)),
-                                  ],
-                                ),
-                              ),
-                              if (badge != null)
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                  margin: const EdgeInsets.only(right: 4),
-                                  decoration: BoxDecoration(
-                                    color: dangerColor.withAlpha(15),
-                                    borderRadius: BorderRadius.circular(radiusSm),
-                                  ),
-                                  child: Text(badge, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: dangerColor)),
-                                ),
-                              if (isOccupied)
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                  decoration: BoxDecoration(
-                                    color: textMuted.withAlpha(25),
-                                    borderRadius: BorderRadius.circular(radiusSm),
-                                  ),
-                                  child: const Text('已占', style: TextStyle(fontSize: 12, color: textMuted)),
-                                )
-                              else if (collected)
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                  decoration: BoxDecoration(
-                                    color: successColor.withAlpha(25),
-                                    borderRadius: BorderRadius.circular(radiusSm),
-                                  ),
-                                  child: const Text('已收藏', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: successColor)),
-                                )
-                              else if (!widget.readOnly)
-                                Container(
-                                  decoration: BoxDecoration(
-                                    gradient: primaryGradient,
-                                    borderRadius: BorderRadius.circular(radiusMd),
-                                  ),
-                                  child: InkWell(
-                                    borderRadius: BorderRadius.circular(radiusMd),
-                                    onTap: () => _addToCollection(bed),
-                                    child: const Padding(
-                                      padding: EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                                      child: Text('+ 收藏', style: TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w600)),
-                                    ),
-                                  ),
-                                ),
-                            ],
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      decoration: BoxDecoration(
+                        color: surfaceColor,
+                        borderRadius: BorderRadius.circular(radiusLg),
+                        border: Border.all(color: borderColor),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        child: Row(children: [
+                          Container(width: 3, height: 36, decoration: BoxDecoration(
+                            color: allFull ? textMuted : (collected ? successColor : primaryColor),
+                            borderRadius: BorderRadius.circular(2),
+                          )),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                              Text(name, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: textPrimary)),
+                              Text('${beds.length}个床位 · 空闲$freeBeds', style: const TextStyle(fontSize: 11, color: textSecondary)),
+                            ]),
                           ),
-                        ),
-                      );
-                    },
-                  ),
-          ),
-        ],
-      ),
+                          if (hasBadge)
+                            Container(
+                              margin: const EdgeInsets.only(right: 6),
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(color: dangerColor.withAlpha(20), borderRadius: BorderRadius.circular(4)),
+                              child: const Text('满', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: dangerColor)),
+                            ),
+                          if (allFull)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(color: textMuted.withAlpha(25), borderRadius: BorderRadius.circular(radiusSm)),
+                              child: const Text('已满', style: TextStyle(fontSize: 12, color: textMuted)),
+                            )
+                          else if (collected)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(color: successColor.withAlpha(25), borderRadius: BorderRadius.circular(radiusSm)),
+                              child: const Text('已收藏', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: successColor)),
+                            )
+                          else if (!widget.readOnly)
+                            Container(
+                              decoration: BoxDecoration(gradient: primaryGradient, borderRadius: BorderRadius.circular(radiusMd)),
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(radiusMd),
+                                onTap: () => _addRoom(room),
+                                child: const Padding(
+                                  padding: EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                                  child: Text('+ 收藏', style: TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w600)),
+                                ),
+                              ),
+                            ),
+                        ]),
+                      ),
+                    );
+                  },
+                ),
+        ),
+      ]),
     );
   }
 }

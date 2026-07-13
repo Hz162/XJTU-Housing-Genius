@@ -9,12 +9,19 @@ import (
 )
 
 type CollectedBed struct {
-	BedCode      string `json:"bedCode"`
-	BedName      string `json:"bedName"`
+	// 服务器端字段
+	ServerID    string `json:"serverId"`    // 收藏记录ID (getBedCollectList 返回的 id，用于 deleteBedCollect)
+	BedCode     string `json:"bedCode"`     // 床位code (distributeBed 用这个加密)
+	BedName     string `json:"bedName"`     // 床位显示名
+	Num         string `json:"num"`         // 已收藏人数 (服务器返回)
+	Status      string `json:"status"`      // "0"=可用 "1"=已被抢
+	BedCodes    string `json:"bedCodes"`    // 房间所有床位ID逗号分隔 (saveBed 用)
+	BeddingInfo string `json:"beddingInfo"` // 床上用品配置
+
+	// 本地字段
 	RoomCode     string `json:"roomCode"`
 	BuildingCode string `json:"buildingCode"`
 	Priority     int    `json:"priority"`
-	BedCodes     string `json:"bedCodes"`
 }
 
 type Collection struct {

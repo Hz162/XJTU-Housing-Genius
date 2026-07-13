@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math"
 	"net/http"
-	stdlog "log"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -54,6 +53,7 @@ type Engine struct {
 	RetryInterval time.Duration
 	personsn      string
 	divideId      string
+	reloginMu     sync.Mutex // 防并发 relogin
 }
 
 func NewEngine() *Engine {
@@ -135,18 +135,16 @@ func (e *Engine) run(ctx context.Context, totalConcurrency int) {
 		for i := 0; i < tk.concurrency; i++ {
 			wg.Add(1)
 			go func(bed CollectedBed) {
-				fmt.Printf("GOROUTINE-START %s\n", bed.BedName)
-				stdlog.Printf("GOROUTINE-START %s", bed.BedName)
 				defer wg.Done()
-				tok := session.Get().Token
-				stdlog.Printf("[grab] token=%s personsn=%s divideId=%s", tok[:min(8, len(tok))], e.personsn, e.divideId)
 				for round := 0; ; round++ {
 					select {
-					case <-ctx.Done(): return
+					case <-ctx.Done():
+						return
 					default:
 					}
-					body := BuildDistributeBedBody(e.personsn, bed.BedCode, e.divideId, bed.BedCodes)
-					stdlog.Printf("[grab] %s round=%d posting...", bed.BedName, round)
+					// 每轮重新读取 token，避免使用别的 goroutine relogin 后的旧 token
+					tok := session.Get().Token
+					body := BuildDistributeBedBody(e.personsn, bed.BedCode, e.divideId, bed.BeddingInfo, bed.BedCodes)
 					resp, err := e.client.R().
 						SetHeader("Content-Type", "application/json; charset=UTF-8").
 						SetHeader("Token", tok).
@@ -190,12 +188,18 @@ func (e *Engine) run(ctx context.Context, totalConcurrency int) {
 						msg := j.PromptMsg
 						if strings.Contains(msg, "已有床位") || strings.Contains(msg, "无需选床") {
 							e.log(fmt.Sprintf("🚫 %s: 已有床位无法再抢: %s", bed.BedName, msg))
-							return // 永久退出这个goroutine
+							return
 						}
-						e.log(fmt.Sprintf("🔄 %s: session过期, relogin...", bed.BedName))
-						auth.ReloginIfNeeded(e.client)
-						tok = session.Get().Token
-						e.client.SetHeader("Token", tok)
+						// 防并发 relogin：同一时间只允许一个 goroutine 做 relogin
+						if e.reloginMu.TryLock() {
+							e.log(fmt.Sprintf("🔄 %s: session过期, relogin...", bed.BedName))
+							if err := auth.ReloginIfNeeded(e.client); err != nil {
+								e.log(fmt.Sprintf("❌ relogin失败: %v", err))
+							}
+							e.client.SetHeader("Token", session.Get().Token)
+							e.reloginMu.Unlock()
+						}
+						// 其他 goroutine 不等 relogin，直接进下轮重试（下轮读到新 token）
 					}
 					time.Sleep(e.RetryInterval)
 				}
@@ -223,7 +227,6 @@ func (e *Engine) recordFail(bedCode string) {
 func (e *Engine) log(msg string) {
 	ts := time.Now().Format("15:04:05")
 	line := fmt.Sprintf("[%s] %s", ts, msg)
-	stdlog.Println(line)
 	e.logsMu.Lock()
 	e.logs = append(e.logs, line)
 	if len(e.logs) > 200 { e.logs = e.logs[len(e.logs)-200:] }

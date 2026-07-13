@@ -52,8 +52,6 @@ func ResetFailCount() {
 	captchaMFAState = ""
 	captchaFpID = ""
 }
-func IsCaptchaRequired() bool { return failCount >= 3 }
-
 // isCaptchaPage 检查 CAS 是否主动显示验证码
 func isCaptchaPage(body []byte) bool {
 	s := string(body)
@@ -485,25 +483,6 @@ func followOAuthAndExchange(client *resty.Client, startURL string) error {
 	stdlog.Println("[mfa] POST CAS login...")
 	return postCASRaw(httpClient, casURL, s.Account, encPwd, execution, mfaState, fpID, "", "")
 
-	// Exchange token
-	token, username, errMsg, err := ExchangeOAuthToken(client)
-	if err != nil {
-		return fmt.Errorf("换取登录token失败: %w", err)
-	}
-	if errMsg != "" {
-		return &AccessDeniedError{Message: errMsg}
-	}
-	if token != "" {
-		session.SetToken(token)
-		client.SetHeader("Token", token)
-	}
-	if username != "" {
-		session.SetStudentCode(username)
-	}
-
-	ResetFailCount()
-	session.SaveCookies(client)
-	return nil
 }
 
 // ── Token exchange ──

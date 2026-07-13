@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import '../main.dart';
 import '../services/api_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/window_bar.dart';
@@ -71,13 +70,15 @@ class _BedPageState extends State<BedPage> {
       }
       _totalConcurrency = (colResp['totalConcurrency'] as int?) ?? 10;
 
+      // 从服务器同步收藏列表，合并到本地（更新 num/status/id，保留本地 priority）
+      if (_divideId.isNotEmpty) {
+        await _syncFromServer();
+      }
+
       setState(() => _initialized = true);
     } catch (e) {
       if (mounted) {
         setState(() => _initialized = true);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('初始化失败: $e'), backgroundColor: dangerColor),
-        );
       }
     }
   }
@@ -94,9 +95,8 @@ class _BedPageState extends State<BedPage> {
           final ok = await api.relogin().then((_) => true).catchError((_) => false);
           if (ok) {
             setState(() => _sessionDead = false);
-          } else {
-            if (mounted) redirectToLogin();
           }
+          // relogin 失败不跳转登录页，让用户继续浏览（手动刷新或重新登录）
         }
       } catch (_) {}
     });
@@ -106,11 +106,82 @@ class _BedPageState extends State<BedPage> {
     setState(() => _selectedRoomCode = roomCode);
   }
 
+  /// 从服务器 getBedCollectList 拉取收藏，与本地合并
+  /// 服务器数据覆盖 num/status/serverId/bedCodes，本地保留 priority
+  Future<void> _syncFromServer() async {
+    if (_divideId.isEmpty) return;
+    try {
+      final serverCol = await api.collectSyncList(
+          personsn: _personsn, divideId: _divideId);
+      if (serverCol['bedCollects'] == null) return;
+
+      final serverBeds = serverCol['bedCollects'] as List;
+      // 构建 server bedCode → server data 映射
+      final Map<String, Map<String, dynamic>> serverMap = {};
+      for (final b in serverBeds) {
+        final bc = b['code']?.toString() ?? '';
+        if (bc.isNotEmpty) serverMap[bc] = b as Map<String, dynamic>;
+      }
+
+      // 合并：匹配上的更新服务器字段；本地有但服务器还没有的保留（乐观添加）；新增的追加
+      final merged = <Map<String, dynamic>>[];
+      final seenCodes = <String>{};
+      for (final local in _collection) {
+        final bc = local['bedCode']?.toString() ?? '';
+        final sv = serverMap[bc];
+        if (sv != null) {
+          // 匹配到服务器数据：更新 num/status/id，保留本地 priority
+          seenCodes.add(bc);
+          merged.add({
+            ...local,
+            'serverId': sv['id']?.toString() ?? local['serverId'] ?? '',
+            'num': sv['num']?.toString() ?? local['num'] ?? '0',
+            'status': sv['status']?.toString() ?? local['status'] ?? '0',
+            'bedCodes': sv['bedCodes']?.toString() ?? local['bedCodes'] ?? '',
+            'beddingInfo': sv['beddingInfo']?.toString() ?? local['beddingInfo'] ?? '',
+            'bedName': '${sv['name'] ?? ''} ${sv['bedName'] ?? ''}'.trim(),
+          });
+        } else {
+          // 本地有但服务器还没返回（乐观添加）：保留本地数据
+          merged.add(local);
+        }
+      }
+      // 追加服务器有但本地没有的
+      for (final b in serverBeds) {
+        final bc = b['code']?.toString() ?? '';
+        if (!seenCodes.contains(bc)) {
+          merged.add({
+            'serverId': b['id']?.toString() ?? '',
+            'bedCode': bc,
+            'bedName': '${b['name'] ?? ''} ${b['bedName'] ?? ''}'.trim(),
+            'num': b['num']?.toString() ?? '0',
+            'status': b['status']?.toString() ?? '0',
+            'bedCodes': b['bedCodes']?.toString() ?? '',
+            'beddingInfo': b['beddingInfo']?.toString() ?? '',
+            'roomCode': '', 'buildingCode': '',
+            'priority': merged.length + 1,
+          });
+        }
+      }
+
+      // 如果数据有变化才更新
+      if (merged.length != _collection.length ||
+          merged.any((m) => _collection.every((c) => c['bedCode'] != m['bedCode'] ||
+              c['num'] != m['num'] || c['status'] != m['status']))) {
+        _collection = merged;
+        api.saveCollection({'beds': _collection, 'totalConcurrency': _totalConcurrency});
+        if (mounted) setState(() {});
+      }
+    } catch (_) {}
+  }
+
   void _onCollectionChanged(List<Map<String, dynamic>> collection, int concurrency) {
     setState(() {
       _collection = collection;
       _totalConcurrency = concurrency;
     });
+    // 异步从服务器同步最新数据（更新 num/status/id）
+    _syncFromServer();
   }
 
   void _onGrabStatus(Map<String, dynamic>? status) {
@@ -180,21 +251,23 @@ class _BedPageState extends State<BedPage> {
                 Expanded(
                   child: Column(
                     children: [
-                      Expanded(
-                        child: _isMyBed
-                            ? Center(
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(Icons.bed_rounded, size: 64, color: successColor.withAlpha(150)),
-                                    const SizedBox(height: 16),
-                                    const Text('您已有床位', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: textPrimary)),
-                                    const SizedBox(height: 8),
-                                    const Text('选床系统已为您分配床位', style: TextStyle(fontSize: 14, color: textSecondary)),
-                                  ],
-                                ),
-                              )
-                            : _selectedRoomCode != null
+                      if (_isMyBed)
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              margin: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: warningColor.withAlpha(20),
+                                borderRadius: BorderRadius.circular(radiusMd),
+                                border: Border.all(color: warningColor.withAlpha(60)),
+                              ),
+                              child: Row(children: [
+                                const Icon(Icons.bed_rounded, color: warningColor, size: 20),
+                                const SizedBox(width: 8),
+                                const Expanded(child: Text('您已有床位，仅供浏览', style: TextStyle(fontSize: 13, color: warningColor))),
+                              ]),
+                            ),
+                          Expanded(
+                            child: _selectedRoomCode != null
                                 ? BedContent(
                                     api: api,
                                     divideId: _divideId,
@@ -202,7 +275,7 @@ class _BedPageState extends State<BedPage> {
                                     personsn: _personsn,
                                     collection: _collection,
                                     onCollectionChanged: _onCollectionChanged,
-                                    readOnly: _isGrabbing,
+                                    readOnly: _isGrabbing || _isMyBed,
                                   )
                                 : Center(
                                     child: Column(
@@ -216,6 +289,7 @@ class _BedPageState extends State<BedPage> {
                                   ),
                       ),
                       CollectionPanel(
+                        api: api,
                         collection: _collection,
                         totalConcurrency: _totalConcurrency,
                         readOnly: _isGrabbing,

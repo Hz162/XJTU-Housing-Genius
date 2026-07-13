@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import '../services/api_service.dart';
 import '../theme/app_theme.dart';
 
 class CollectionPanel extends StatelessWidget {
+  final ApiService api;
   final List<Map<String, dynamic>> collection;
   final int totalConcurrency;
   final bool readOnly;
@@ -9,6 +11,7 @@ class CollectionPanel extends StatelessWidget {
 
   const CollectionPanel({
     super.key,
+    required this.api,
     required this.collection,
     required this.totalConcurrency,
     required this.readOnly,
@@ -20,7 +23,7 @@ class CollectionPanel extends StatelessWidget {
     final concurrencyController = TextEditingController(text: '$totalConcurrency');
 
     return Container(
-      constraints: const BoxConstraints(maxHeight: 200),
+      constraints: const BoxConstraints(maxHeight: 220),
       decoration: const BoxDecoration(
         color: surfaceColor,
         border: Border(top: BorderSide(color: borderColor)),
@@ -61,15 +64,20 @@ class CollectionPanel extends StatelessWidget {
                     itemCount: collection.length,
                     itemBuilder: (_, i) {
                       final bed = collection[i];
+                      final num = bed['num']?.toString() ?? '0';
+                      final status = bed['status']?.toString() ?? '0';
+                      final isTaken = status == '1';
+
                       return Container(
-                        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                         decoration: BoxDecoration(
-                          color: surfaceSecondary,
+                          color: isTaken ? dangerColor.withAlpha(12) : surfaceSecondary,
                           borderRadius: BorderRadius.circular(radiusSm),
-                          border: Border.all(color: const Color(0xFFF1F5F9)),
+                          border: Border.all(color: isTaken ? dangerColor.withAlpha(40) : const Color(0xFFF1F5F9)),
                         ),
                         child: Row(children: [
+                          // 序号
                           Container(
                             width: 24, height: 24,
                             decoration: BoxDecoration(
@@ -82,15 +90,60 @@ class CollectionPanel extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(width: 8),
+                          // 床位名称
                           Expanded(
-                            child: Text(bed['bedName']?.toString() ?? bed['bedCode']?.toString() ?? '?',
-                                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: textPrimary)),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(bed['bedName']?.toString() ?? bed['bedCode']?.toString() ?? '?',
+                                    style: TextStyle(
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.w500,
+                                      color: isTaken ? textMuted : textPrimary,
+                                      decoration: isTaken ? TextDecoration.lineThrough : null,
+                                    ),
+                                    maxLines: 1, overflow: TextOverflow.ellipsis),
+                                const SizedBox(height: 2),
+                                Row(children: [
+                                  // 收藏人数 (原网页 num)
+                                  Icon(Icons.people_outline_rounded, size: 10, color: textMuted),
+                                  const SizedBox(width: 2),
+                                  Text('$num人收藏',
+                                      style: const TextStyle(fontSize: 10, color: textSecondary)),
+                                  const SizedBox(width: 8),
+                                  // 状态标签
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                    decoration: BoxDecoration(
+                                      color: isTaken ? dangerColor.withAlpha(20) : successColor.withAlpha(20),
+                                      borderRadius: BorderRadius.circular(3),
+                                    ),
+                                    child: Text(
+                                      isTaken ? '已被抢' : '可用',
+                                      style: TextStyle(
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.w600,
+                                        color: isTaken ? dangerColor : successColor,
+                                      ),
+                                    ),
+                                  ),
+                                ]),
+                              ],
+                            ),
                           ),
+                          // 优先级下拉
                           _buildPriorityDropdown(bed, i),
                           const SizedBox(width: 4),
+                          // 删除按钮
                           if (!readOnly)
                             InkWell(
-                              onTap: () {
+                              onTap: () async {
+                                // 从服务器删除
+                                final serverId = bed['serverId']?.toString() ?? '';
+                                final bedCode = bed['bedCode']?.toString() ?? '';
+                                if (serverId.isNotEmpty) {
+                                  try { api.collectSyncDelete(id: serverId, bedCode: bedCode); } catch (_) {}
+                                }
                                 final newCol = List<Map<String, dynamic>>.from(collection);
                                 newCol.removeAt(i);
                                 onChanged(newCol, totalConcurrency);

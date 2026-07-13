@@ -243,6 +243,49 @@ class ApiService {
   Future<void> saveCollection(Map<String, dynamic> collection) =>
       _request('POST', '/bed/collection', body: collection);
 
+  // ── 服务器端收藏同步 ──
+
+  /// 调用原网页 saveBed API 同步收藏到服务器
+  Future<Map<String, dynamic>> collectSyncSave({
+    required String personsn,
+    required String bedPlaceCode,
+    required String divideId,
+    String beddingInfo = '',
+    String bedCodes = '',
+  }) async {
+    final data = await _request('POST', '/bed/collect-save', body: {
+      'personsn': personsn,
+      'bedPlaceCode': bedPlaceCode,
+      'divideId': divideId,
+      'beddingInfo': beddingInfo,
+      'bedCodes': bedCodes,
+    });
+    return data as Map<String, dynamic>;
+  }
+
+  /// 调用原网页 getBedCollectList API 获取服务器端收藏列表
+  Future<Map<String, dynamic>> collectSyncList({
+    required String personsn,
+    required String divideId,
+    String modelId = 'dm',
+  }) async {
+    final data = await _request('GET',
+        '/bed/collect-list?personsn=$personsn&divideId=$divideId&modelId=$modelId');
+    return data as Map<String, dynamic>;
+  }
+
+  /// 调用原网页 deleteBedCollect API 从服务器删除收藏
+  Future<Map<String, dynamic>> collectSyncDelete({
+    required String id,
+    required String bedCode,
+  }) async {
+    final data = await _request('POST', '/bed/collect-delete', body: {
+      'id': id,
+      'bedCode': bedCode,
+    });
+    return data as Map<String, dynamic>;
+  }
+
   Future<Map<String, dynamic>> grabStart(
       {required String personsn, required String divideId, required int totalConcurrency}) async {
     final data = await _request('POST',

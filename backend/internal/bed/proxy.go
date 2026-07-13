@@ -52,6 +52,24 @@ func ProxyPost(client *resty.Client, path string, params map[string]string, body
 	return resp.Body(), nil
 }
 
+// ProxyPostJSON sends a POST with JSON body to housing API (for saveBed, distributeBed, etc.)
+func ProxyPostJSON(client *resty.Client, path string, body map[string]interface{}, token string) ([]byte, error) {
+	req := client.R().
+		SetHeader("Content-Type", "application/json; charset=UTF-8").
+		SetHeader("Origin", "http://housing2021.xjtu.edu.cn").
+		SetHeader("Referer", "http://housing2021.xjtu.edu.cn/dmWeb/")
+	if token != "" {
+		req.SetHeader("Token", token)
+		req.SetCookie(&http.Cookie{Name: "token", Value: token, Path: "/"})
+	}
+	req.SetBody(body)
+	resp, err := req.Post(housingAPI + path)
+	if err != nil {
+		return nil, fmt.Errorf("proxy POST JSON %s: %w", path, err)
+	}
+	return resp.Body(), nil
+}
+
 func EncryptBedCode(bedCode string, timestamp int64) string {
 	key := []byte(fmt.Sprintf("shu%d", timestamp))
 	padded := make([]byte, 16)
@@ -79,14 +97,19 @@ func EncryptBedCode(bedCode string, timestamp int64) string {
 	return base64.StdEncoding.EncodeToString(encrypted)
 }
 
-func BuildDistributeBedBody(personsn, bedCode, divideId, bedCodes string) map[string]interface{} {
+// BuildDistributeBedBody 构造 distributeBed 请求体
+// 原网页有两种路径：
+//   choose-bed.vue 直接提交:  {personsn, bedPlaceCode(加密), divideId, aircondition, beddingInfo, chooseWay:2, t}
+//   beds-collect.vue 收藏提交: 同上 + bedCodes (来自收藏项的bedCodes字段)
+// 我们的抢床引擎对应收藏提交，所以 bedCodes 需要传入
+func BuildDistributeBedBody(personsn, bedCode, divideId, beddingInfo, bedCodes string) map[string]interface{} {
 	ts := time.Now().UnixMilli()
 	body := map[string]interface{}{
 		"personsn":     personsn,
 		"bedPlaceCode": EncryptBedCode(bedCode, ts),
 		"divideId":     divideId,
 		"aircondition": "",
-		"beddingInfo":  "",
+		"beddingInfo":  beddingInfo,
 		"chooseWay":    2,
 		"t":            ts,
 	}
