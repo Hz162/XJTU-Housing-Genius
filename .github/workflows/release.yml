@@ -91,7 +91,8 @@ jobs:
           Invoke-WebRequest "https://raw.githubusercontent.com/jrsoftware/issrc/main/Files/Languages/Unofficial/ChineseSimplified.isl" -OutFile "$d\ChineseSimplified.isl"
       - name: Build installer
         shell: pwsh
-        run: & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" scripts/setupconfig.iss
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" scripts/setupconfig.iss
       - uses: actions/upload-artifact@v4
         with:
           name: XJTU-Housing-Genius-windows-x64
