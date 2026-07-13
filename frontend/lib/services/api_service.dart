@@ -257,4 +257,10 @@ class ApiService {
     final data = await _request('GET', '/bed/grab/status');
     return data as Map<String, dynamic>;
   }
+
+  Future<Map<String, dynamic>> getRoomAssign(String divideId, String roomCodes) async {
+    final data = await _request(
+        'GET', '/bed/room-assign?divideId=$divideId&roomCodes=$roomCodes');
+    return data as Map<String, dynamic>;
+  }
 }

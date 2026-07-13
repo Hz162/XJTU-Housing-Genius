@@ -75,16 +75,16 @@ func EncryptBedCode(bedCode string, timestamp int64) string {
 	return base64.StdEncoding.EncodeToString(encrypted)
 }
 
-func BuildDistributeBedBody(personsn, bedCode, divideId, bedCodes string) map[string]string {
+func BuildDistributeBedBody(personsn, bedCode, divideId, bedCodes string) map[string]interface{} {
 	ts := time.Now().UnixMilli()
-	body := map[string]string{
+	body := map[string]interface{}{
 		"personsn":     personsn,
 		"bedPlaceCode": EncryptBedCode(bedCode, ts),
 		"divideId":     divideId,
 		"aircondition": "",
 		"beddingInfo":  "",
-		"chooseWay":    "2",
-		"t":            fmt.Sprintf("%d", ts),
+		"chooseWay":    2,
+		"t":            ts,
 	}
 	if bedCodes != "" {
 		body["bedCodes"] = bedCodes

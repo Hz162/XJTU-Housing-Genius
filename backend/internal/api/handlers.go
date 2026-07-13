@@ -425,3 +425,16 @@ func (s *Server) HandleBedGrabStop(w http.ResponseWriter, r *http.Request) {
 func (s *Server) HandleBedGrabStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, s.engine.Status())
 }
+
+func (s *Server) HandleBedRoomAssign(w http.ResponseWriter, r *http.Request) {
+	divideId := r.URL.Query().Get("divideId")
+	roomCodes := r.URL.Query().Get("roomCodes")
+	body, err := bed.ProxyGet(s.client, "/appdm/freshman/bunk/queryAssignBedsByRoom",
+		map[string]string{"divideId": divideId, "roomCodes": roomCodes}, session.Get().Token)
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"error": err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(body)
+}

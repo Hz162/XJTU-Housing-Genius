@@ -44,6 +44,8 @@ class _BedContentState extends State<BedContent> {
     _loadBeds();
   }
 
+  Map<String, String> _badges = {};
+
   Future<void> _loadBeds() async {
     setState(() => _loading = true);
     try {
@@ -58,14 +60,31 @@ class _BedContentState extends State<BedContent> {
               'id': bed['id']?.toString() ?? '',
               'name': '${bed['name'] ?? '?'} ($roomName)',
               'sn': bed['sn'],
-              'status': bed['sn'] != null ? '1' : '0',
             });
           }
         }
         _beds = allBeds;
+        // 获取已分配/收藏计数
+        _loadBadges();
       }
     } catch (_) {}
     if (mounted) setState(() => _loading = false);
+  }
+
+  Future<void> _loadBadges() async {
+    try {
+      final resp = await widget.api.getRoomAssign(widget.divideId, widget.roomCode);
+      if (resp['code'] == 0 && resp['assignBeds'] != null) {
+        final badges = <String, String>{};
+        for (final b in resp['assignBeds']) {
+          if (b['badge'] != null) {
+            badges[b['code']?.toString() ?? ''] = b['badge'].toString();
+          }
+        }
+        _badges = badges;
+        if (mounted) setState(() {});
+      }
+    } catch (_) {}
   }
 
   bool _isCollected(String bedCode) {
@@ -118,11 +137,12 @@ class _BedContentState extends State<BedContent> {
                     itemCount: _beds.length,
                     itemBuilder: (_, i) {
                       final bed = _beds[i] as Map<String, dynamic>;
-                      final code = (bed['bedCode'] ?? bed['code'] ?? '').toString();
-                      final name = (bed['bedName'] ?? bed['name'] ?? code).toString();
-                      final status = (bed['status'] ?? '').toString();
-                      final collected = _isCollected(code);
-                      final isOccupied = status != '0' && status != '空闲' && status != 'idle';
+                      final bedId = (bed['id'] ?? bed['bedCode'] ?? '').toString();
+                      final name = (bed['name'] ?? bed['bedName'] ?? bedId).toString();
+                      final sn = bed['sn'];
+                      final collected = _isCollected(bedId);
+                      final isOccupied = sn != null;
+                      final badge = _badges[bedId];
 
                       return Container(
                         margin: const EdgeInsets.only(bottom: 8),
@@ -148,10 +168,20 @@ class _BedContentState extends State<BedContent> {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(name, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: textPrimary)),
-                                    Text(code, style: const TextStyle(fontSize: 11, fontFamily: 'monospace', color: textSecondary)),
+                                    Text(bedId, style: const TextStyle(fontSize: 11, fontFamily: 'monospace', color: textSecondary)),
                                   ],
                                 ),
                               ),
+                              if (badge != null)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  margin: const EdgeInsets.only(right: 4),
+                                  decoration: BoxDecoration(
+                                    color: dangerColor.withAlpha(15),
+                                    borderRadius: BorderRadius.circular(radiusSm),
+                                  ),
+                                  child: Text(badge, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: dangerColor)),
+                                ),
                               if (isOccupied)
                                 Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"net/http"
 	stdlog "log"
 	"sync"
 	"sync/atomic"
@@ -26,23 +27,6 @@ const (
 	StateExhausted
 )
 
-func (s EngineState) String() string {
-	switch s {
-	case StateIdle:
-		return "idle"
-	case StateRunning:
-		return "running"
-	case StateSuccess:
-		return "success"
-	case StateStopped:
-		return "stopped"
-	case StateExhausted:
-		return "exhausted"
-	default:
-		return "unknown"
-	}
-}
-
 type BedProgress struct {
 	Done  int `json:"done"`
 	Total int `json:"total"`
@@ -59,16 +43,14 @@ type GrabStatus struct {
 }
 
 type Engine struct {
-	client  *resty.Client
-	state   EngineState
-	mu      sync.Mutex
-	cancel  context.CancelFunc
-	status  GrabStatus
-	logs    []string
-	logsMu  sync.Mutex
-
+	client        *resty.Client
+	state         EngineState
+	mu            sync.Mutex
+	cancel        context.CancelFunc
+	status        GrabStatus
+	logs          []string
+	logsMu        sync.Mutex
 	RetryInterval time.Duration
-	MaxRetries    int
 	personsn      string
 	divideId      string
 }
@@ -77,7 +59,6 @@ func NewEngine() *Engine {
 	return &Engine{
 		state:         StateIdle,
 		RetryInterval: 50 * time.Millisecond,
-		MaxRetries:    999999,
 	}
 }
 
@@ -100,16 +81,11 @@ func (e *Engine) Start(totalConcurrency int) error {
 		return fmt.Errorf("未登录，请先登录")
 	}
 	e.state = StateRunning
-	e.status = GrabStatus{
-		Running:  true,
-		Progress: make(map[string]BedProgress),
-		Log:      []string{},
-	}
+	e.status = GrabStatus{Running: true, Progress: make(map[string]BedProgress), Log: []string{}}
 	e.logs = []string{}
 	ctx, cancel := context.WithCancel(context.Background())
 	e.cancel = cancel
 	e.mu.Unlock()
-
 	go e.run(ctx, totalConcurrency)
 	return nil
 }
@@ -117,13 +93,9 @@ func (e *Engine) Start(totalConcurrency int) error {
 func (e *Engine) Stop() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if e.state != StateRunning {
-		return
-	}
+	if e.state != StateRunning { return }
 	e.state = StateStopped
-	if e.cancel != nil {
-		e.cancel()
-	}
+	if e.cancel != nil { e.cancel() }
 }
 
 func (e *Engine) Status() GrabStatus {
@@ -141,71 +113,51 @@ func (e *Engine) run(ctx context.Context, totalConcurrency int) {
 		e.done(StateExhausted)
 		return
 	}
-
 	if totalConcurrency < len(col.Beds) {
 		totalConcurrency = len(col.Beds)
 	}
-
 	weightSum := 0
-	for _, b := range col.Beds {
-		weightSum += 6 - b.Priority
-	}
-
-	type grabTask struct {
-		bed         CollectedBed
-		concurrency int
-	}
+	for _, b := range col.Beds { weightSum += 6 - b.Priority }
+	type grabTask struct { bed CollectedBed; concurrency int }
 	var tasks []grabTask
 	for _, b := range col.Beds {
 		weight := 6 - b.Priority
 		n := int(math.Max(1, math.Floor(float64(totalConcurrency)*float64(weight)/float64(weightSum))))
 		tasks = append(tasks, grabTask{bed: b, concurrency: n})
 	}
-
-	e.log(fmt.Sprintf("开始抢床，总并发=%d，%d个床位", totalConcurrency, len(tasks)))
-
+	e.log(fmt.Sprintf("开始抢床 总并发=%d %d个床位", totalConcurrency, len(tasks)))
 	var successCount int32
 	var wg sync.WaitGroup
-
-	for _, t := range tasks {
-		e.initProgress(t.bed.BedCode, t.concurrency)
-		e.log(fmt.Sprintf("%s: %d路并发 (优先级%d)", t.bed.BedName, t.concurrency, t.bed.Priority))
-
-		for i := 0; i < t.concurrency; i++ {
+	for _, tk := range tasks {
+		e.initProgress(tk.bed.BedCode, tk.concurrency)
+		e.log(fmt.Sprintf("%s: %d路(优先级%d)", tk.bed.BedName, tk.concurrency, tk.bed.Priority))
+		for i := 0; i < tk.concurrency; i++ {
 			wg.Add(1)
 			go func(bed CollectedBed) {
+				fmt.Printf("GOROUTINE-START %s\n", bed.BedName)
+				stdlog.Printf("GOROUTINE-START %s", bed.BedName)
 				defer wg.Done()
+				tok := session.Get().Token
+				stdlog.Printf("[grab] token=%s personsn=%s divideId=%s", tok[:min(8, len(tok))], e.personsn, e.divideId)
 				for round := 0; ; round++ {
 					select {
-					case <-ctx.Done():
-						return
+					case <-ctx.Done(): return
 					default:
 					}
-
-					if !auth.IsSessionAlive(e.client) {
-						e.log("session 过期，重新登录...")
-						if err := auth.ReloginIfNeeded(e.client); err != nil {
-							e.log(fmt.Sprintf("relogin 失败: %v", err))
-							continue
-						}
-						e.client.SetHeader("Token", session.Get().Token)
-					}
-
 					body := BuildDistributeBedBody(e.personsn, bed.BedCode, e.divideId, "")
-					e.log(fmt.Sprintf("%s 第%d轮: 发送请求", bed.BedName, round+1))
-
+					stdlog.Printf("[grab] %s round=%d posting...", bed.BedName, round)
 					resp, err := e.client.R().
-						SetHeader("Content-Type", "application/x-www-form-urlencoded").
-						SetFormData(body).
+						SetHeader("Content-Type", "application/json").
+						SetHeader("Token", tok).
+						SetCookie(&http.Cookie{Name: "token", Value: tok}).
+						SetBody(body).
 						Post(housingAPI + "/appdm/freshman/bunk/distributeBed")
-
 					if err != nil {
 						e.recordFail(bed.BedCode)
-						e.log(fmt.Sprintf("%s: 网络错误 %v", bed.BedName, err))
+						e.log(fmt.Sprintf("%s: err=%v", bed.BedName, err))
 						time.Sleep(e.RetryInterval)
 						continue
 					}
-
 					var j struct {
 						Code      int    `json:"code"`
 						Status    int    `json:"status"`
@@ -213,16 +165,12 @@ func (e *Engine) run(ctx context.Context, totalConcurrency int) {
 						PromptMsg string `json:"promptMsg"`
 					}
 					json.Unmarshal(resp.Body(), &j)
-					e.log(fmt.Sprintf("[DEBUG] %s raw=%s", bed.BedName, string(resp.Body())[:min(200, len(resp.Body()))]))
-
-					// code != 0 → 服务端错误
+					e.log(fmt.Sprintf("%s round=%d resp: code=%d status=%d prompt=%s", bed.BedName, round, j.Code, j.Status, j.PromptMsg))
 					if j.Code != 0 {
 						e.recordFail(bed.BedCode)
-						e.log(fmt.Sprintf("❌ %s: 服务端错误 code=%d msg=%s", bed.BedName, j.Code, j.Msg))
+						time.Sleep(e.RetryInterval)
 						continue
 					}
-
-					// 原网页: code=0 && status=0 即抢床成功
 					if j.Status == 0 {
 						e.recordOK(bed.BedCode)
 						atomic.AddInt32(&successCount, 1)
@@ -234,27 +182,19 @@ func (e *Engine) run(ctx context.Context, totalConcurrency int) {
 						e.cancel()
 						return
 					}
-
 					e.recordFail(bed.BedCode)
-					switch j.Status {
-					case 1:
+					if j.Status == 1 {
 						e.log(fmt.Sprintf("🔄 %s: session过期", bed.BedName))
 						auth.ReloginIfNeeded(e.client)
-						e.client.SetHeader("Token", session.Get().Token)
-					case 5:
-						e.log(fmt.Sprintf("⏰ %s: 选床未开始: %s", bed.BedName, j.PromptMsg))
-					default:
-						e.log(fmt.Sprintf("❓ %s: status=%d %s", bed.BedName, j.Status, j.PromptMsg))
+						tok = session.Get().Token
+						e.client.SetHeader("Token", tok)
 					}
-
 					time.Sleep(e.RetryInterval)
 				}
-			}(t.bed)
+			}(tk.bed)
 		}
 	}
-
 	wg.Wait()
-
 	if atomic.LoadInt32(&successCount) > 0 {
 		e.done(StateSuccess)
 	} else {
@@ -264,46 +204,23 @@ func (e *Engine) run(ctx context.Context, totalConcurrency int) {
 }
 
 func (e *Engine) initProgress(bedCode string, total int) {
-	e.mu.Lock()
-	e.status.Progress[bedCode] = BedProgress{Total: total}
-	e.mu.Unlock()
+	e.mu.Lock(); e.status.Progress[bedCode] = BedProgress{Total: total}; e.mu.Unlock()
 }
-
 func (e *Engine) recordOK(bedCode string) {
-	e.mu.Lock()
-	p := e.status.Progress[bedCode]
-	p.Done++
-	p.OK++
-	e.status.Progress[bedCode] = p
-	e.mu.Unlock()
+	e.mu.Lock(); p := e.status.Progress[bedCode]; p.Done++; p.OK++; e.status.Progress[bedCode] = p; e.mu.Unlock()
 }
-
 func (e *Engine) recordFail(bedCode string) {
-	e.mu.Lock()
-	p := e.status.Progress[bedCode]
-	p.Done++
-	p.Fail++
-	e.status.Progress[bedCode] = p
-	e.mu.Unlock()
+	e.mu.Lock(); p := e.status.Progress[bedCode]; p.Done++; p.Fail++; e.status.Progress[bedCode] = p; e.mu.Unlock()
 }
-
 func (e *Engine) log(msg string) {
 	ts := time.Now().Format("15:04:05")
 	line := fmt.Sprintf("[%s] %s", ts, msg)
 	stdlog.Println(line)
 	e.logsMu.Lock()
 	e.logs = append(e.logs, line)
-	if len(e.logs) > 200 {
-		e.logs = e.logs[len(e.logs)-200:]
-	}
-	e.mu.Lock()
-	e.status.Log = e.logs
-	e.mu.Unlock()
+	if len(e.logs) > 200 { e.logs = e.logs[len(e.logs)-200:] }
+	e.mu.Lock(); e.status.Log = e.logs; e.mu.Unlock()
 }
-
 func (e *Engine) done(state EngineState) {
-	e.mu.Lock()
-	e.state = state
-	e.status.Running = false
-	e.mu.Unlock()
+	e.mu.Lock(); e.state = state; e.status.Running = false; e.mu.Unlock()
 }
