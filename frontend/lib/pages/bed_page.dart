@@ -53,10 +53,11 @@ class _BedPageState extends State<BedPage> {
       _personsn = widget.studentCode;
 
       final divResp = await api.getDivideId(_personsn);
-      if (divResp['code'] == 0 && divResp['map'] != null) {
-        _divideId = divResp['map']['divideId']?.toString() ?? '';
-      } else if (divResp['divideId'] != null) {
-        _divideId = divResp['divideId'].toString();
+      if (divResp['code'] == 0) {
+        // 真实API: {divideCountDown: {id, ...}}
+        _divideId = (divResp['divideCountDown']?['id']
+            ?? divResp['map']?['divideId']
+            ?? divResp['divideId'])?.toString() ?? '';
       }
 
       if (_divideId.isNotEmpty) {

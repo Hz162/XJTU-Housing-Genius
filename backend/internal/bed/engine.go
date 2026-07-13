@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	stdlog "log"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -191,7 +192,7 @@ func (e *Engine) run(ctx context.Context, totalConcurrency int) {
 						e.client.SetHeader("Token", session.Get().Token)
 					}
 
-					body := BuildDistributeBedBody(e.personsn, bed.BedCode, e.divideId)
+					body := BuildDistributeBedBody(e.personsn, bed.BedCode, e.divideId, "")
 					e.log(fmt.Sprintf("%s 第%d轮: 发送请求", bed.BedName, round+1))
 
 					resp, err := e.client.R().
@@ -213,26 +214,45 @@ func (e *Engine) run(ctx context.Context, totalConcurrency int) {
 						PromptMsg string `json:"promptMsg"`
 					}
 					json.Unmarshal(resp.Body(), &j)
+					e.log(fmt.Sprintf("[DEBUG] %s raw=%s", bed.BedName, string(resp.Body())[:min(200, len(resp.Body()))]))
 
-					if j.Code == 0 && j.Status == 0 {
-						e.recordOK(bed.BedCode)
-						atomic.AddInt32(&successCount, 1)
-						e.log(fmt.Sprintf("✅ %s: 成功! %s", bed.BedName, j.PromptMsg))
-						e.mu.Lock()
-						e.status.Success = true
-						e.status.SuccessBed = bed.BedCode
-						e.mu.Unlock()
-						e.cancel()
-						return
+					// code != 0 → 服务端错误
+					if j.Code != 0 {
+						e.recordFail(bed.BedCode)
+						e.log(fmt.Sprintf("❌ %s: 服务端错误 code=%d msg=%s", bed.BedName, j.Code, j.Msg))
+						continue
 					}
 
-					if j.Status == 1 {
-						e.log(fmt.Sprintf("%s: session过期, relogin...", bed.BedName))
+					switch j.Status {
+					case 0:
+						// status=0: 需要看 promptMsg 判断
+						msg := j.PromptMsg
+						if strings.Contains(msg, "成功") || strings.Contains(msg, "选床") && !strings.Contains(msg, "还未") && !strings.Contains(msg, "未开始") && !strings.Contains(msg, "结束") {
+							e.recordOK(bed.BedCode)
+							atomic.AddInt32(&successCount, 1)
+							e.log(fmt.Sprintf("✅ %s: 抢到! %s", bed.BedName, msg))
+							e.mu.Lock()
+							e.status.Success = true
+							e.status.SuccessBed = bed.BedCode
+							e.mu.Unlock()
+							e.cancel()
+							return
+						}
+						e.recordFail(bed.BedCode)
+						e.log(fmt.Sprintf("⚠️ %s: status=0 但未成功: %s", bed.BedName, msg))
+
+					case 1:
+						e.log(fmt.Sprintf("🔄 %s: session过期, relogin...", bed.BedName))
 						auth.ReloginIfNeeded(e.client)
 						e.client.SetHeader("Token", session.Get().Token)
-					} else {
+
+					case 5:
+						e.log(fmt.Sprintf("⏰ %s: 选床还未开始: %s", bed.BedName, j.PromptMsg))
 						e.recordFail(bed.BedCode)
-						e.log(fmt.Sprintf("%s: 失败 code=%d msg=%s prompt=%s", bed.BedName, j.Code, j.Msg, j.PromptMsg))
+
+					default:
+						e.recordFail(bed.BedCode)
+						e.log(fmt.Sprintf("❓ %s: 未知status=%d msg=%s prompt=%s", bed.BedName, j.Status, j.Msg, j.PromptMsg))
 					}
 
 					if round < e.MaxRetries-1 {

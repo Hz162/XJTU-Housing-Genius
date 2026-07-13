@@ -281,6 +281,8 @@ func (s *Server) proxyRequest(w http.ResponseWriter, r *http.Request, targetURL 
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	if token := session.Get().Token; token != "" {
 		req.Header.Set("Token", token)
+		// 关键：浏览器同时发 token cookie，部分 appdm 接口依赖 cookie
+		req.AddCookie(&http.Cookie{Name: "token", Value: token})
 	}
 
 	resp, err := s.client.GetClient().Do(req)
@@ -307,13 +309,15 @@ func (s *Server) HandleBedDivideId(w http.ResponseWriter, r *http.Request) {
 	if personsn == "" {
 		personsn = session.Get().StudentCode
 	}
-	body, err := bed.ProxyPost(s.client, "/appdm/freshman/resident/getDivideIdBySn",
-		map[string]string{"personsn": personsn}, "query", session.Get().Token)
+	// 真实 API: GET /appdm/freshman/resident/getDivideCountDown?personsn=xxx&status=PC
+	body, err := bed.ProxyGet(s.client, "/appdm/freshman/resident/getDivideCountDown",
+		map[string]string{"personsn": personsn, "status": "PC"}, session.Get().Token)
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": err.Error()})
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
+	log.Printf("[bed] divideId response: %s", string(body)[:min(200, len(body))])
 	w.Write(body)
 }
 
@@ -325,6 +329,7 @@ func (s *Server) HandleBedTree(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, map[string]string{"error": err.Error()})
 		return
 	}
+	w.Header().Set("Content-Type", "application/json")
 	w.Write(body)
 }
 

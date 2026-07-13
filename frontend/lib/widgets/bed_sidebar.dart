@@ -70,7 +70,7 @@ class _BedSidebarState extends State<BedSidebar> {
 
   Widget _buildBuilding(dynamic building) {
     final map = building as Map<String, dynamic>;
-    final name = (map['name'] ?? map['buildingName'] ?? map['text'] ?? '?').toString();
+    final name = (map['name'] ?? map['label'] ?? map['buildingName'] ?? map['text'] ?? '?').toString();
     final children = (map['children'] ?? map['floors'] ?? map['nodes'] ?? []) as List;
     return ExpansionTile(
       tilePadding: const EdgeInsets.symmetric(horizontal: 8),

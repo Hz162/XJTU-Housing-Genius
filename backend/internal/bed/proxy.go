@@ -4,6 +4,7 @@ import (
 	"crypto/aes"
 	"encoding/base64"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/go-resty/resty/v2"
@@ -15,6 +16,7 @@ func ProxyGet(client *resty.Client, path string, params map[string]string, token
 	req := client.R()
 	if token != "" {
 		req.SetHeader("Token", token)
+		req.SetCookie(&http.Cookie{Name: "token", Value: token, Path: "/"})
 	}
 	if params != nil {
 		req.SetQueryParams(params)
@@ -30,6 +32,7 @@ func ProxyPost(client *resty.Client, path string, params map[string]string, body
 	req := client.R()
 	if token != "" {
 		req.SetHeader("Token", token)
+		req.SetCookie(&http.Cookie{Name: "token", Value: token, Path: "/"})
 	}
 	if params != nil {
 		if bodyType == "query" {
@@ -72,15 +75,19 @@ func EncryptBedCode(bedCode string, timestamp int64) string {
 	return base64.StdEncoding.EncodeToString(encrypted)
 }
 
-func BuildDistributeBedBody(personsn, bedCode, divideId string) map[string]string {
+func BuildDistributeBedBody(personsn, bedCode, divideId, bedCodes string) map[string]string {
 	ts := time.Now().UnixMilli()
-	return map[string]string{
+	body := map[string]string{
 		"personsn":     personsn,
 		"bedPlaceCode": EncryptBedCode(bedCode, ts),
 		"divideId":     divideId,
-		"aircondition": "0",
+		"aircondition": "",
 		"beddingInfo":  "",
 		"chooseWay":    "2",
 		"t":            fmt.Sprintf("%d", ts),
 	}
+	if bedCodes != "" {
+		body["bedCodes"] = bedCodes
+	}
+	return body
 }
