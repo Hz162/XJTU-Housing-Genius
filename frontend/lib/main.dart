@@ -1,0 +1,82 @@
+import 'dart:ui' show AppExitResponse;
+import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'services/backend_service.dart';
+import 'theme/app_theme.dart';
+import 'pages/login_page.dart';
+
+/// Global navigator key for session-expired redirect from any page.
+final navigatorKey = GlobalKey<NavigatorState>();
+
+/// Redirect to login page, clearing navigation stack.
+void redirectToLogin() {
+  navigatorKey.currentState?.pushAndRemoveUntil(
+    MaterialPageRoute(builder: (_) => const LoginPage()),
+    (_) => false,
+  );
+}
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  final backend = BackendService();
+  await backend.start();
+
+  runApp(const HousingGeniusApp());
+}
+
+class HousingGeniusApp extends StatefulWidget {
+  const HousingGeniusApp({super.key});
+
+  @override
+  State<HousingGeniusApp> createState() => _HousingGeniusAppState();
+}
+
+class _HousingGeniusAppState extends State<HousingGeniusApp>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.detached) {
+      BackendService().stop();
+    }
+  }
+
+  @override
+  Future<AppExitResponse> didRequestAppExit() async {
+    BackendService().stop();
+    return AppExitResponse.exit;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'XJTU Housing Genius',
+      theme: appTheme(),
+      debugShowCheckedModeBanner: false,
+      navigatorKey: navigatorKey,
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: const [
+        Locale('zh', 'CN'),
+        Locale('en', 'US'),
+      ],
+      locale: const Locale('zh', 'CN'),
+      home: const LoginPage(),
+    );
+  }
+}

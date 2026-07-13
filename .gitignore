@@ -1,0 +1,33 @@
+# Flutter
+frontend/.dart_tool/
+frontend/build/
+frontend/.flutter-plugins
+frontend/.flutter-plugins-dependencies
+frontend/.packages
+frontend/.flutter-plugins-dependencies
+frontend/windows/flutter/ephemeral/
+
+# Go
+backend/xjtu-housing-genius.exe
+backend/xjtu-housing-genius-real.exe
+backend/xjtu-housing-genius-mock.exe
+backend/cmd/mock/mock-backend.exe
+backend/server.exe
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Dump
+dump/
+
+# Temp
+.claude/
+tmp/
