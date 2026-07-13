@@ -13,7 +13,9 @@ import (
 const housingAPI = "http://housing2021.xjtu.edu.cn"
 
 func ProxyGet(client *resty.Client, path string, params map[string]string, token string) ([]byte, error) {
-	req := client.R()
+	req := client.R().
+		SetHeader("Origin", "http://housing2021.xjtu.edu.cn").
+		SetHeader("Referer", "http://housing2021.xjtu.edu.cn/dmWeb/")
 	if token != "" {
 		req.SetHeader("Token", token)
 		req.SetCookie(&http.Cookie{Name: "token", Value: token, Path: "/"})
@@ -29,7 +31,9 @@ func ProxyGet(client *resty.Client, path string, params map[string]string, token
 }
 
 func ProxyPost(client *resty.Client, path string, params map[string]string, bodyType string, token string) ([]byte, error) {
-	req := client.R()
+	req := client.R().
+		SetHeader("Origin", "http://housing2021.xjtu.edu.cn").
+		SetHeader("Referer", "http://housing2021.xjtu.edu.cn/dmWeb/")
 	if token != "" {
 		req.SetHeader("Token", token)
 		req.SetCookie(&http.Cookie{Name: "token", Value: token, Path: "/"})

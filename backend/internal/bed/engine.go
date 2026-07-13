@@ -144,11 +144,13 @@ func (e *Engine) run(ctx context.Context, totalConcurrency int) {
 					case <-ctx.Done(): return
 					default:
 					}
-					body := BuildDistributeBedBody(e.personsn, bed.BedCode, e.divideId, "")
+					body := BuildDistributeBedBody(e.personsn, bed.BedCode, e.divideId, bed.BedCode)
 					stdlog.Printf("[grab] %s round=%d posting...", bed.BedName, round)
 					resp, err := e.client.R().
-						SetHeader("Content-Type", "application/json").
+						SetHeader("Content-Type", "application/json; charset=UTF-8").
 						SetHeader("Token", tok).
+						SetHeader("Origin", "http://housing2021.xjtu.edu.cn").
+						SetHeader("Referer", "http://housing2021.xjtu.edu.cn/dmWeb/").
 						SetCookie(&http.Cookie{Name: "token", Value: tok}).
 						SetBody(body).
 						Post(housingAPI + "/appdm/freshman/bunk/distributeBed")
