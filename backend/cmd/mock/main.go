@@ -118,6 +118,7 @@ func main() {
 	var grabbing bool
 	var grabLog []string
 	var grabSuccess bool
+	var grabSuccessBed string
 	grabProgress := make(map[string]bed.BedProgress)
 
 	mux.HandleFunc("/api/bed/grab/start", func(w http.ResponseWriter, r *http.Request) {
@@ -128,6 +129,7 @@ func main() {
 		}
 		grabbing = true
 		grabSuccess = false
+		grabSuccessBed = ""
 		grabLog = []string{}
 		grabProgress = make(map[string]bed.BedProgress)
 		var req struct {
@@ -154,6 +156,7 @@ func main() {
 					} else {
 						p.OK++
 						grabSuccess = true
+						grabSuccessBed = b.BedName
 						grabLog = append(grabLog, fmt.Sprintf("[%s] ✅ %s: 抢床成功!", ts, b.BedName))
 					}
 					grabProgress[b.BedCode] = p
@@ -174,7 +177,7 @@ func main() {
 		writeJSON(w, map[string]any{
 			"running":    grabbing,
 			"success":    grabSuccess,
-			"successBed": "",
+			"successBed": grabSuccessBed,
 			"progress":   grabProgress,
 			"log":        grabLog,
 		})
