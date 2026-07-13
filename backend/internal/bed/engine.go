@@ -144,7 +144,7 @@ func (e *Engine) run(ctx context.Context, totalConcurrency int) {
 					case <-ctx.Done(): return
 					default:
 					}
-					body := BuildDistributeBedBody(e.personsn, bed.BedCode, e.divideId, bed.BedCode)
+					body := BuildDistributeBedBody(e.personsn, bed.BedCode, e.divideId, bed.BedCodes)
 					stdlog.Printf("[grab] %s round=%d posting...", bed.BedName, round)
 					resp, err := e.client.R().
 						SetHeader("Content-Type", "application/json; charset=UTF-8").

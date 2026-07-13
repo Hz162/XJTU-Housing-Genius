@@ -95,6 +95,7 @@ class _BedContentState extends State<BedContent> {
     final bedMap = bed as Map<String, dynamic>;
     final bedCode = (bedMap['id'] ?? bedMap['bedCode'] ?? '').toString();
     final bedName = (bedMap['name'] ?? bedMap['bedName'] ?? bedCode).toString();
+    final allBedCodes = _beds.map((b) => (b['id'] ?? '').toString()).where((id) => id.isNotEmpty).join(',');
     final newCol = List<Map<String, dynamic>>.from(widget.collection);
     newCol.add({
       'bedCode': bedCode,
@@ -102,6 +103,7 @@ class _BedContentState extends State<BedContent> {
       'roomCode': widget.roomCode,
       'buildingCode': '',
       'priority': newCol.length + 1,
+      'bedCodes': allBedCodes,
     });
     widget.onCollectionChanged(newCol, 10);
     setState(() {});

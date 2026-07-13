@@ -14,6 +14,7 @@ type CollectedBed struct {
 	RoomCode     string `json:"roomCode"`
 	BuildingCode string `json:"buildingCode"`
 	Priority     int    `json:"priority"`
+	BedCodes     string `json:"bedCodes"`
 }
 
 type Collection struct {
