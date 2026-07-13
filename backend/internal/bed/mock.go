@@ -1,59 +1,91 @@
 package bed
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+)
 
-// MockMode 模拟模式（真实 housing 不可用时启用）
 var MockMode = false
 
-// ── 模拟楼栋树 ──
+// mockRoomNames maps room code → display name for MockRoomBeds
+var mockRoomNames = map[string]string{
+	"020201": "创新港校区-和园（A区）-A02幢-二单元-2-020201",
+	"020202": "创新港校区-和园（A区）-A02幢-二单元-2-020202",
+	"020301": "创新港校区-和园（A区）-A02幢-二单元-3-020301",
+	"020302": "创新港校区-和园（A区）-A02幢-二单元-3-020302",
+	"101":    "兴庆校区-东区-东1楼-1单元-1-101",
+	"102":    "兴庆校区-东区-东1楼-1单元-1-102",
+}
+
+// ── 模拟楼栋树 (7层: ROOT → CAMPUS → PARK → BUILDING → UNIT → FLOOR → ROOM) ──
 
 func MockBunkTree() []byte {
 	tree := []map[string]any{
 		{
-			"code": "B1", "name": "B1栋（兴庆校区）", "text": "B1栋（兴庆校区）",
+			"label": "西安交通大学", "type": "ROOT", "value": "root",
 			"children": []map[string]any{
 				{
-					"code": "B1-F1", "name": "1层", "text": "1层",
+					"label": "创新港校区", "type": "CAMPUS", "value": "campus1",
 					"children": []map[string]any{
-						{"code": "B1-101", "name": "101室", "text": "101室", "roomCode": "B1-101"},
-						{"code": "B1-102", "name": "102室", "text": "102室", "roomCode": "B1-102"},
-						{"code": "B1-103", "name": "103室", "text": "103室", "roomCode": "B1-103"},
+						{
+							"label": "和园（A区）", "type": "PARK", "value": "park1",
+							"children": []map[string]any{
+								{
+									"label": "A02幢", "type": "BUILDING", "value": "build_a02",
+									"children": []map[string]any{
+										{
+											"label": "二单元", "type": "UNIT", "value": "unit_a02_2",
+											"children": []map[string]any{
+												{
+													"label": "2", "type": "FLOOR", "value": "floor_a02_2_2",
+													"floorUrl": "",
+													"children": []map[string]any{
+														{"label": "020201", "type": "ROOM", "value": "020201"},
+														{"label": "020202", "type": "ROOM", "value": "020202"},
+													},
+												},
+												{
+													"label": "3", "type": "FLOOR", "value": "floor_a02_2_3",
+													"floorUrl": "",
+													"children": []map[string]any{
+														{"label": "020301", "type": "ROOM", "value": "020301"},
+														{"label": "020302", "type": "ROOM", "value": "020302"},
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
 					},
 				},
 				{
-					"code": "B1-F2", "name": "2层", "text": "2层",
+					"label": "兴庆校区", "type": "CAMPUS", "value": "campus2",
 					"children": []map[string]any{
-						{"code": "B1-201", "name": "201室", "text": "201室", "roomCode": "B1-201"},
-						{"code": "B1-202", "name": "202室", "text": "202室", "roomCode": "B1-202"},
-					},
-				},
-			},
-		},
-		{
-			"code": "B2", "name": "B2栋（兴庆校区）", "text": "B2栋（兴庆校区）",
-			"children": []map[string]any{
-				{
-					"code": "B2-F1", "name": "1层", "text": "1层",
-					"children": []map[string]any{
-						{"code": "B2-101", "name": "101室", "text": "101室", "roomCode": "B2-101"},
-						{"code": "B2-102", "name": "102室", "text": "102室", "roomCode": "B2-102"},
-					},
-				},
-				{
-					"code": "B2-F2", "name": "2层", "text": "2层",
-					"children": []map[string]any{
-						{"code": "B2-201", "name": "201室", "text": "201室", "roomCode": "B2-201"},
-					},
-				},
-			},
-		},
-		{
-			"code": "B3", "name": "B3栋（雁塔校区）", "text": "B3栋（雁塔校区）",
-			"children": []map[string]any{
-				{
-					"code": "B3-F1", "name": "1层", "text": "1层",
-					"children": []map[string]any{
-						{"code": "B3-101", "name": "101室", "text": "101室", "roomCode": "B3-101"},
+						{
+							"label": "东区", "type": "PARK", "value": "park2",
+							"children": []map[string]any{
+								{
+									"label": "东1楼", "type": "BUILDING", "value": "build_e1",
+									"children": []map[string]any{
+										{
+											"label": "1单元", "type": "UNIT", "value": "unit_e1_1",
+											"children": []map[string]any{
+												{
+													"label": "1", "type": "FLOOR", "value": "floor_e1_1",
+													"floorUrl": "",
+													"children": []map[string]any{
+														{"label": "101", "type": "ROOM", "value": "101"},
+														{"label": "102", "type": "ROOM", "value": "102"},
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
 					},
 				},
 			},
@@ -66,35 +98,55 @@ func MockBunkTree() []byte {
 // ── 模拟房间床位 ──
 
 func MockRoomBeds(roomCode string) []byte {
-	beds := []map[string]any{
-		{"bedCode": roomCode + "-A", "bedName": roomCode + " A床（靠窗）", "code": roomCode + "-A", "name": "A床（靠窗）", "status": "0"},
-		{"bedCode": roomCode + "-B", "bedName": roomCode + " B床（靠门）", "code": roomCode + "-B", "name": "B床（靠门）", "status": "0"},
-		{"bedCode": roomCode + "-C", "bedName": roomCode + " C床（中间）", "code": roomCode + "-C", "name": "C床（中间）", "status": "1"},
-		{"bedCode": roomCode + "-D", "bedName": roomCode + " D床（靠窗）", "code": roomCode + "-D", "name": "D床（靠窗）", "status": "0"},
+	roomName := mockRoomNames[roomCode]
+	if roomName == "" {
+		roomName = fmt.Sprintf("房间-%s", roomCode)
 	}
-	resp := map[string]any{"code": 0, "bedsInfo": beds}
+	bedNames := []string{"1号床", "2号床", "3号床", "4号床"}
+	bedList := make([]map[string]any, len(bedNames))
+	for i, name := range bedNames {
+		sn := any(nil)
+		if i >= 2 { // 第3、4床已被选
+			sn = "3125303000"
+		}
+		bedList[i] = map[string]any{
+			"id":   fmt.Sprintf("%s-%d", roomCode, i+1),
+			"code": fmt.Sprintf("%s-%d", roomCode, i+1),
+			"name": name,
+			"sn":   sn,
+		}
+	}
+	resp := map[string]any{
+		"code": 0,
+		"bedsInfo": []map[string]any{
+			{
+				"code":    roomCode,
+				"name":    roomName,
+				"badge":   false,
+				"roomUrl": "",
+				"bedList": bedList,
+			},
+		},
+	}
 	b, _ := json.Marshal(resp)
 	return b
 }
 
-// ── 模拟 divideId ──
+// ── 模拟其他 API ──
 
 func MockDivideId() []byte {
 	resp := map[string]any{
 		"code": 0,
-		"map": map[string]any{
-			"divideId": "MOCK-DIVIDE-2026",
+		"divideCountDown": map[string]any{
+			"id":       "MOCK-DIVIDE-2026",
 			"disabled": false,
 			"time":     "2026-07-13 12:00:00",
 			"endtime":  "2026-07-15 23:59:59",
 		},
-		"divideId": "MOCK-DIVIDE-2026",
 	}
 	b, _ := json.Marshal(resp)
 	return b
 }
-
-// ── 模拟 checkMyBed ──
 
 func MockCheckMyBed() []byte {
 	resp := map[string]any{"code": 0, "isMybed": false}
@@ -102,17 +154,35 @@ func MockCheckMyBed() []byte {
 	return b
 }
 
-// ── 模拟 distributeBed ──
+func MockCollectList() []byte {
+	resp := map[string]any{
+		"code": 0,
+		"bedCollects": []map[string]any{
+			{
+				"id":          "mock-collect-1",
+				"code":        "020201-2",
+				"name":        "创新港校区-和园（A区）-A02幢-二单元-2-020201",
+				"bedName":     "2号床",
+				"url":         "",
+				"status":      "0",
+				"num":         3,
+				"beddingInfo": "[]",
+				"bedCodes":    "020201-1,020201-2,020201-3,020201-4",
+			},
+		},
+	}
+	b, _ := json.Marshal(resp)
+	return b
+}
 
 var mockGrabAttempt int
 
 func MockDistributeBed() []byte {
 	mockGrabAttempt++
-	// 模拟：前 2 次失败，第 3 次成功
 	if mockGrabAttempt >= 3 {
-		return []byte(`{"code":0,"status":0,"promptMsg":"选床成功！恭喜抢到床位！"}`)
+		return []byte(`{"code":0,"status":0,"promptMsg":"选床成功！"}`)
 	}
-	return []byte(`{"code":0,"status":0,"promptMsg":"床位已被其他人抢走"}`)
+	return []byte(`{"code":0,"status":1,"promptMsg":"床位已被抢，重试中..."}`)
 }
 
 func ResetMockGrab() { mockGrabAttempt = 0 }

@@ -229,9 +229,10 @@ class ApiService {
     return data as Map<String, dynamic>;
   }
 
-  Future<Map<String, dynamic>> checkMyBed(String personsn, String divideId) async {
+  Future<Map<String, dynamic>> checkMyBed(String personsn, String divideId, {bool forceAvailable = false}) async {
+    final forceParam = forceAvailable ? '&force=false' : '';
     final data = await _request(
-        'GET', '/bed/check?personsn=$personsn&divideId=$divideId');
+        'GET', '/bed/check?personsn=$personsn&divideId=$divideId$forceParam');
     return data as Map<String, dynamic>;
   }
 

@@ -53,14 +53,13 @@ class _BedPageState extends State<BedPage> {
 
       final divResp = await api.getDivideId(_personsn);
       if (divResp['code'] == 0) {
-        // 真实API: {divideCountDown: {id, ...}}
         _divideId = (divResp['divideCountDown']?['id']
             ?? divResp['map']?['divideId']
             ?? divResp['divideId'])?.toString() ?? '';
       }
 
       if (_divideId.isNotEmpty) {
-        final checkResp = await api.checkMyBed(_personsn, _divideId);
+        final checkResp = await api.checkMyBed(_personsn, _divideId, forceAvailable: true);
         _isMyBed = checkResp['isMybed'] == true || checkResp['data']?['isMybed'] == true;
       }
 
@@ -70,7 +69,6 @@ class _BedPageState extends State<BedPage> {
       }
       _totalConcurrency = (colResp['totalConcurrency'] as int?) ?? 10;
 
-      // 从服务器同步收藏列表，合并到本地（更新 num/status/id，保留本地 priority）
       if (_divideId.isNotEmpty) {
         await _syncFromServer();
       }
@@ -96,7 +94,6 @@ class _BedPageState extends State<BedPage> {
           if (ok) {
             setState(() => _sessionDead = false);
           }
-          // relogin 失败不跳转登录页，让用户继续浏览（手动刷新或重新登录）
         }
       } catch (_) {}
     });
@@ -106,8 +103,6 @@ class _BedPageState extends State<BedPage> {
     setState(() => _selectedRoomCode = roomCode);
   }
 
-  /// 从服务器 getBedCollectList 拉取收藏，与本地合并
-  /// 服务器数据覆盖 num/status/serverId/bedCodes，本地保留 priority
   Future<void> _syncFromServer() async {
     if (_divideId.isEmpty) return;
     try {
@@ -116,21 +111,18 @@ class _BedPageState extends State<BedPage> {
       if (serverCol['bedCollects'] == null) return;
 
       final serverBeds = serverCol['bedCollects'] as List;
-      // 构建 server bedCode → server data 映射
       final Map<String, Map<String, dynamic>> serverMap = {};
       for (final b in serverBeds) {
         final bc = b['code']?.toString() ?? '';
         if (bc.isNotEmpty) serverMap[bc] = b as Map<String, dynamic>;
       }
 
-      // 合并：匹配上的更新服务器字段；本地有但服务器还没有的保留（乐观添加）；新增的追加
       final merged = <Map<String, dynamic>>[];
       final seenCodes = <String>{};
       for (final local in _collection) {
         final bc = local['bedCode']?.toString() ?? '';
         final sv = serverMap[bc];
         if (sv != null) {
-          // 匹配到服务器数据：更新 num/status/id，保留本地 priority
           seenCodes.add(bc);
           merged.add({
             ...local,
@@ -142,11 +134,9 @@ class _BedPageState extends State<BedPage> {
             'bedName': '${sv['name'] ?? ''} ${sv['bedName'] ?? ''}'.trim(),
           });
         } else {
-          // 本地有但服务器还没返回（乐观添加）：保留本地数据
           merged.add(local);
         }
       }
-      // 追加服务器有但本地没有的
       for (final b in serverBeds) {
         final bc = b['code']?.toString() ?? '';
         if (!seenCodes.contains(bc)) {
@@ -164,7 +154,6 @@ class _BedPageState extends State<BedPage> {
         }
       }
 
-      // 如果数据有变化才更新
       if (merged.length != _collection.length ||
           merged.any((m) => _collection.every((c) => c['bedCode'] != m['bedCode'] ||
               c['num'] != m['num'] || c['status'] != m['status']))) {
@@ -180,7 +169,6 @@ class _BedPageState extends State<BedPage> {
       _collection = collection;
       _totalConcurrency = concurrency;
     });
-    // 异步从服务器同步最新数据（更新 num/status/id）
     _syncFromServer();
   }
 
@@ -252,41 +240,41 @@ class _BedPageState extends State<BedPage> {
                   child: Column(
                     children: [
                       if (_isMyBed)
-                            Container(
-                              padding: const EdgeInsets.all(12),
-                              margin: const EdgeInsets.all(16),
-                              decoration: BoxDecoration(
-                                color: warningColor.withAlpha(20),
-                                borderRadius: BorderRadius.circular(radiusMd),
-                                border: Border.all(color: warningColor.withAlpha(60)),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          margin: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: warningColor.withAlpha(20),
+                            borderRadius: BorderRadius.circular(radiusMd),
+                            border: Border.all(color: warningColor.withAlpha(60)),
+                          ),
+                          child: const Row(children: [
+                            Icon(Icons.bed_rounded, color: warningColor, size: 20),
+                            SizedBox(width: 8),
+                            Expanded(child: Text('您已有床位，仅供浏览', style: TextStyle(fontSize: 13, color: warningColor))),
+                          ]),
+                        ),
+                      Expanded(
+                        child: _selectedRoomCode != null
+                            ? BedContent(
+                                api: api,
+                                divideId: _divideId,
+                                roomCode: _selectedRoomCode!,
+                                personsn: _personsn,
+                                collection: _collection,
+                                onCollectionChanged: _onCollectionChanged,
+                                readOnly: _isGrabbing || _isMyBed,
+                              )
+                            : Center(
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.arrow_back_rounded, size: 48, color: textMuted.withAlpha(100)),
+                                    const SizedBox(height: 12),
+                                    const Text('从左侧选择一个房间', style: TextStyle(fontSize: 14, color: textMuted)),
+                                  ],
+                                ),
                               ),
-                              child: Row(children: [
-                                const Icon(Icons.bed_rounded, color: warningColor, size: 20),
-                                const SizedBox(width: 8),
-                                const Expanded(child: Text('您已有床位，仅供浏览', style: TextStyle(fontSize: 13, color: warningColor))),
-                              ]),
-                            ),
-                          Expanded(
-                            child: _selectedRoomCode != null
-                                ? BedContent(
-                                    api: api,
-                                    divideId: _divideId,
-                                    roomCode: _selectedRoomCode!,
-                                    personsn: _personsn,
-                                    collection: _collection,
-                                    onCollectionChanged: _onCollectionChanged,
-                                    readOnly: _isGrabbing || _isMyBed,
-                                  )
-                                : Center(
-                                    child: Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(Icons.arrow_back_rounded, size: 48, color: textMuted.withAlpha(100)),
-                                        const SizedBox(height: 12),
-                                        const Text('从左侧选择一个房间', style: TextStyle(fontSize: 14, color: textMuted)),
-                                      ],
-                                    ),
-                                  ),
                       ),
                       CollectionPanel(
                         api: api,

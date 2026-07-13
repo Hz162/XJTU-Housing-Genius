@@ -80,10 +80,7 @@ jobs:
           Compress-Archive -Path "$bundle\*" -DestinationPath "XJTU-Housing-Genius-windows-x64.zip"
       - name: Install Inno Setup
         shell: pwsh
-        run: |
-          $url = "https://files.jrsoftware.org/is/6/innosetup-6.4.1.exe"
-          Invoke-WebRequest $url -OutFile "is.exe"
-          Start-Process -Wait -FilePath "is.exe" -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-"
+        run: choco install innosetup --no-progress -y
       - name: Download Chinese ISL
         shell: pwsh
         run: |

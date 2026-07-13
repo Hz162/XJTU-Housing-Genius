@@ -106,7 +106,7 @@ class CollectionPanel extends StatelessWidget {
                                 const SizedBox(height: 2),
                                 Row(children: [
                                   // 收藏人数 (原网页 num)
-                                  Icon(Icons.people_outline_rounded, size: 10, color: textMuted),
+                                  const Icon(Icons.people_outline_rounded, size: 10, color: textMuted),
                                   const SizedBox(width: 2),
                                   Text('$num人收藏',
                                       style: const TextStyle(fontSize: 10, color: textSecondary)),

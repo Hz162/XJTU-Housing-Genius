@@ -83,7 +83,11 @@ func main() {
 		w.Write(bed.MockCheckMyBed())
 	})
 
-	// ── Collection (real file-based) ──
+	mux.HandleFunc("/api/bed/room-assign", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, map[string]any{"code": 0, "assignBeds": []any{}})
+	})
+
+	// ── Collection: local file + server sync mocks ──
 	mux.HandleFunc("/api/bed/collection", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "GET" {
 			bed.LoadCollection("mock-user")
@@ -94,6 +98,20 @@ func main() {
 		json.NewDecoder(r.Body).Decode(&col)
 		bed.SaveCollection(col, "mock-user")
 		writeJSON(w, map[string]string{"status": "ok"})
+	})
+
+	mux.HandleFunc("/api/bed/collect-list", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(bed.MockCollectList())
+	})
+
+	mux.HandleFunc("/api/bed/collect-save", func(w http.ResponseWriter, r *http.Request) {
+		// no-op: mock 下不真正调服务器
+		writeJSON(w, map[string]any{"code": 0, "collectSucessPromptMsg": "收藏成功"})
+	})
+
+	mux.HandleFunc("/api/bed/collect-delete", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, map[string]any{"code": 0, "collectDeleteSuccessPromptMsg": "删除成功"})
 	})
 
 	// ── Grab (mock engine) ──
@@ -120,7 +138,6 @@ func main() {
 			req.TotalConcurrency = col.TotalConcurrency
 		}
 
-		// 模拟抢床：3秒后成功
 		for _, b := range col.Beds {
 			grabProgress[b.BedCode] = bed.BedProgress{Total: 3, Done: 0}
 		}
@@ -163,13 +180,10 @@ func main() {
 		})
 	})
 
-	// ── CORS ──
-	handler := corsMiddleware(mux)
-
 	addr := "127.0.0.1:" + port
 	fmt.Printf("PORT=%s\n", port)
 	fmt.Printf("Mock backend listening on http://%s\n", addr)
-	log.Fatal(http.ListenAndServe(addr, handler))
+	log.Fatal(http.ListenAndServe(addr, corsMiddleware(mux)))
 }
 
 func corsMiddleware(next http.Handler) http.Handler {

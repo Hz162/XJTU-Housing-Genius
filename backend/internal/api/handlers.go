@@ -266,7 +266,6 @@ func writeJSON(w http.ResponseWriter, status int, data interface{}) {
 	json.NewEncoder(w).Encode(data)
 }
 
-
 // ── Bed ──
 
 func (s *Server) HandleBedDivideId(w http.ResponseWriter, r *http.Request) {
@@ -326,6 +325,7 @@ func (s *Server) HandleBedCheck(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, map[string]string{"error": err.Error()})
 		return
 	}
+	w.Header().Set("Content-Type", "application/json")
 	w.Write(body)
 }
 
