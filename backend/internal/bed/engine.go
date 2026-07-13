@@ -7,6 +7,7 @@ import (
 	"math"
 	"net/http"
 	stdlog "log"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -186,7 +187,12 @@ func (e *Engine) run(ctx context.Context, totalConcurrency int) {
 					}
 					e.recordFail(bed.BedCode)
 					if j.Status == 1 {
-						e.log(fmt.Sprintf("🔄 %s: session过期", bed.BedName))
+						msg := j.PromptMsg
+						if strings.Contains(msg, "已有床位") || strings.Contains(msg, "无需选床") {
+							e.log(fmt.Sprintf("🚫 %s: 已有床位无法再抢: %s", bed.BedName, msg))
+							return // 永久退出这个goroutine
+						}
+						e.log(fmt.Sprintf("🔄 %s: session过期, relogin...", bed.BedName))
 						auth.ReloginIfNeeded(e.client)
 						tok = session.Get().Token
 						e.client.SetHeader("Token", tok)

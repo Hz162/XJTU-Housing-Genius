@@ -426,6 +426,28 @@ func (s *Server) HandleBedGrabStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, s.engine.Status())
 }
 
+func (s *Server) HandleBedTestGrab(w http.ResponseWriter, r *http.Request) {
+	body := bed.BuildDistributeBedBody("3125303241", "0536006502020000000101", "57b92431-0b0a-41a5-bbd8-cd63807c748f", "0536006502020000000101")
+	tok := session.Get().Token
+	resp, err := s.client.R().
+		SetHeader("Content-Type", "application/json; charset=UTF-8").
+		SetHeader("Token", tok).
+		SetHeader("Origin", "http://housing2021.xjtu.edu.cn").
+		SetHeader("Referer", "http://housing2021.xjtu.edu.cn/dmWeb/").
+		SetCookie(&http.Cookie{Name: "token", Value: tok}).
+		SetBody(body).
+		Post("http://housing2021.xjtu.edu.cn/appdm/freshman/bunk/distributeBed")
+	if err != nil {
+		writeJSON(w, 500, map[string]any{"error": err.Error(), "body": body})
+		return
+	}
+	writeJSON(w, 200, map[string]any{
+		"sent_body":    body,
+		"status_code":  resp.StatusCode(),
+		"response":     string(resp.Body()),
+	})
+}
+
 func (s *Server) HandleBedRoomAssign(w http.ResponseWriter, r *http.Request) {
 	divideId := r.URL.Query().Get("divideId")
 	roomCodes := r.URL.Query().Get("roomCodes")

@@ -51,6 +51,7 @@ func NewRouter() *chi.Mux {
 			r.Post("/grab/start", s.HandleBedGrabStart)
 			r.Post("/grab/stop", s.HandleBedGrabStop)
 			r.Get("/room-assign", s.HandleBedRoomAssign)
+			r.Get("/test-grab", s.HandleBedTestGrab)
 		})
 	})
 
