@@ -270,7 +270,7 @@ class _LoginPageState extends State<LoginPage> {
           const Text('西安交通大学',
               style: TextStyle(fontSize: 13, color: textMuted)),
           const SizedBox(height: 4),
-          const Text('抢宿舍系统',
+          const Text('统一认证登录',
               style: TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.w700,

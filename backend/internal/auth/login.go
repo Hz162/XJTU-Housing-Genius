@@ -40,6 +40,11 @@ var captchaFpID string
 var accountChoiceExecution string
 var accountChoices []map[string]string
 
+// stored state for Safety Verify
+var safetyVerifyURL string
+var safetyVerifyExecution string
+var safetyVerifySecState string
+
 func ResetFailCount() {
 	failCount = 0
 	captchaCASURL = ""
@@ -278,6 +283,18 @@ func postCASRaw(httpClient *http.Client, casURL, account, encPwd, execution, mfa
 	if alertMsg != "" {
 		failCount++
 		return fmt.Errorf("登录失败: %s", alertMsg)
+	}
+
+	// Check for Safety Verify page
+	if isSafetyVerifyPage(body) {
+		secState := extractInputValue(body, "secState")
+		secExec := extractExecution(body)
+		safetyVerifyURL = resp.Request.URL.String()
+		safetyVerifyExecution = secExec
+		safetyVerifySecState = secState
+		currentMFA = &MFAInfo{State: secState, Flow: MFAFlowSec}
+		SetPendingMFAState(secState)
+		return &MFANeededError{State: secState, Reason: "需要二次安全认证", IsSafetyVerify: true}
 	}
 
 	// Check for account choice
@@ -610,8 +627,9 @@ func detectMFA(client *resty.Client, account, encPwd, fpID string) (need bool, s
 // ── Error types ──
 
 type MFANeededError struct {
-	State  string `json:"state"`
-	Reason string `json:"reason"`
+	State          string `json:"state"`
+	Reason         string `json:"reason"`
+	IsSafetyVerify bool   `json:"isSafetyVerify"`
 }
 
 func (e *MFANeededError) Error() string { return e.Reason }
@@ -642,6 +660,57 @@ func (e *AccessDeniedError) Error() string {
 		return e.Message
 	}
 	return "访问被拒绝"
+}
+
+// ── Safety Verify ──
+
+func isSafetyVerifyPage(htmlContent []byte) bool {
+	s := string(htmlContent)
+	return strings.Contains(s, "secState") &&
+		strings.Contains(s, "execution") &&
+		strings.Contains(s, "_eventId") &&
+		(strings.Contains(s, "Safety Verify") ||
+			strings.Contains(s, "/cas/sec/initByType") ||
+			strings.Contains(s, "选择安全认证") ||
+			strings.Contains(s, "二次认证"))
+}
+
+func ClearSafetyVerify() {
+	safetyVerifyURL = ""
+	safetyVerifyExecution = ""
+	safetyVerifySecState = ""
+}
+
+func FinishSafetyVerifyLogin(client *resty.Client) error {
+	if safetyVerifyURL == "" {
+		return fmt.Errorf("没有待处理的Safety Verify")
+	}
+	fpID := session.Get().FpVisitorID
+	resp, err := client.R().
+		SetHeader("Content-Type", "application/x-www-form-urlencoded").
+		SetFormData(map[string]string{
+			"secState":    safetyVerifySecState,
+			"execution":   safetyVerifyExecution,
+			"_eventId":    "submit",
+			"geolocation": "",
+			"fpVisitorId": fpID,
+			"submit":      "Login1",
+		}).
+		Post(safetyVerifyURL)
+	if err != nil {
+		return fmt.Errorf("Safety Verify提交失败: %w", err)
+	}
+	ClearSafetyVerify()
+	if resp.StatusCode() == http.StatusUnauthorized {
+		return fmt.Errorf("二次认证失败")
+	}
+	if isSafetyVerifyPage(resp.Body()) {
+		return fmt.Errorf("二次认证未通过，请重试")
+	}
+	if msg := extractAlertMessage(resp.Body()); msg != "" {
+		return fmt.Errorf("二次认证失败: %s", msg)
+	}
+	return followOAuthAndExchange(client, "")
 }
 
 // ── HTML parsing ──

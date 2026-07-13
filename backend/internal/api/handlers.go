@@ -196,6 +196,23 @@ func (s *Server) HandleMFAVerify(w http.ResponseWriter, r *http.Request) {
 	// 照抄 Course-Genius：创建新 client（从 session 恢复 cookies），完成登录
 	client := session.NewClient()
 
+	// Safety Verify flow
+	if auth.IsSafetyVerifyFlow() {
+		if err := auth.FinishSafetyVerifyLogin(client); err != nil {
+			writeJSON(w, 500, map[string]string{"error": "二次认证失败: " + err.Error()})
+			return
+		}
+		auth.ClearMFA()
+		session.SaveCookies(client)
+		client.SetHeader("Token", session.Get().Token)
+		s.client = client
+		writeJSON(w, 200, map[string]any{
+			"success":     true,
+			"studentCode": session.Get().StudentCode,
+		})
+		return
+	}
+
 	if err := auth.CompleteLoginAfterMFA(client); err != nil {
 		if adErr, ok := err.(*auth.AccessDeniedError); ok {
 			writeJSON(w, 200, map[string]any{

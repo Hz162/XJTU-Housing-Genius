@@ -8,13 +8,21 @@ import (
 	"github.com/go-resty/resty/v2"
 )
 
+type MFAFlow string
+
+const (
+	MFAFlowMFA MFAFlow = "mfa"
+	MFAFlowSec MFAFlow = "sec"
+)
+
 type MFAInfo struct {
-	Type            string `json:"type"`
-	State           string `json:"state"`
-	GID             string `json:"gid"`
-	AttestServerURL string `json:"attestServerUrl"`
-	SecurePhone     string `json:"securePhone,omitempty"`
-	SecureEmail     string `json:"secureEmail,omitempty"`
+	Type            string  `json:"type"`
+	State           string  `json:"state"`
+	GID             string  `json:"gid"`
+	AttestServerURL string  `json:"attestServerUrl"`
+	SecurePhone     string  `json:"securePhone,omitempty"`
+	SecureEmail     string  `json:"secureEmail,omitempty"`
+	Flow            MFAFlow `json:"flow"`
 }
 
 var currentMFA *MFAInfo
@@ -22,6 +30,7 @@ var pendingMFAState string
 
 func SetPendingMFAState(s string) { pendingMFAState = s }
 func GetMFA() *MFAInfo            { return currentMFA }
+func IsSafetyVerifyFlow() bool    { return currentMFA != nil && currentMFA.Flow == MFAFlowSec }
 
 type MFAInitResult struct {
 	Target string `json:"target"`
@@ -37,7 +46,12 @@ func InitMFA(client *resty.Client, mfaType string) (*MFAInitResult, error) {
 		return nil, fmt.Errorf("没有可用的MFA状态，请先登录")
 	}
 
-	url := fmt.Sprintf("https://login.xjtu.edu.cn/cas/mfa/initByType/%s?state=%s", mfaType, mfaState)
+	flow := MFAFlowMFA
+	if currentMFA != nil && currentMFA.Flow == MFAFlowSec {
+		flow = MFAFlowSec
+	}
+
+	url := fmt.Sprintf("https://login.xjtu.edu.cn/cas/%s/initByType/%s?state=%s", flow, mfaType, mfaState)
 	resp, err := client.R().Get(url)
 	if err != nil {
 		return nil, fmt.Errorf("MFA初始化失败: %w", err)
@@ -66,6 +80,7 @@ func InitMFA(client *resty.Client, mfaType string) (*MFAInitResult, error) {
 		AttestServerURL: j.Data.AttestServerURL,
 		SecurePhone:     j.Data.SecurePhone,
 		SecureEmail:     j.Data.SecureEmail,
+		Flow:            flow,
 	}
 
 	result := &MFAInitResult{Type: mfaType}
